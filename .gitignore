@@ -1,0 +1,68 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.vite/
+.npm/
+.pnpm-store/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# Databases and generated data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+tmp/
+temp/
+exports/
+reports/
+artifacts/
+uploads/
+
+# Docker
+*.pid
+docker-data/
+
+# Alembic / migration junk
+alembic.ini.bak
+
+# Misc
+*.bak
+*.tmp
