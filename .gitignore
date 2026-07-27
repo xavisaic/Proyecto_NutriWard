@@ -9,6 +9,8 @@ Thumbs.db
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+*.tsbuildinfo
 *.pyd
 *.so
 .pytest_cache/
