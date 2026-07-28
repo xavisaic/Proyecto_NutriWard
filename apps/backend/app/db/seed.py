@@ -32,6 +32,8 @@ DEMO_USERS = {
 SERVICE_DEFINITIONS = {
     "MED": ("Medicina", "Hospitalización médico-quirúrgica."),
     "UCI": ("Unidad de Cuidados Intensivos", "Atención de pacientes críticos."),
+    "UTI": ("Unidad de Tratamiento Intermedio", "Atención intermedia y monitorización."),
+    "CIR": ("Cirugía", "Hospitalización quirúrgica."),
 }
 
 ROOM_DEFINITIONS = {
@@ -40,12 +42,16 @@ ROOM_DEFINITIONS = {
         ("A102", "Sala A102", "Piso 1"),
     ),
     "UCI": (("UCI-A", "UCI Sector A", "Piso 2"),),
+    "UTI": (("UTI-A", "UTI Sector A", "Piso 2"),),
+    "CIR": (("C201", "Sala C201", "Piso 2"),),
 }
 
 CARE_UNIT_DEFINITIONS = {
     ("MED", "A101"): ("01", "02"),
     ("MED", "A102"): ("01", "02"),
     ("UCI", "UCI-A"): ("01", "02"),
+    ("UTI", "UTI-A"): ("01", "02"),
+    ("CIR", "C201"): ("01", "02"),
 }
 
 

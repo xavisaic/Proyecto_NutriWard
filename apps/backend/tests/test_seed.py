@@ -19,10 +19,16 @@ def test_seed_is_idempotent(database_engine) -> None:
         assert session.exec(select(func.count()).select_from(Role)).one() == 4
         assert session.exec(select(func.count()).select_from(User)).one() == 4
         assert session.exec(select(func.count()).select_from(UserRole)).one() == 4
-        assert session.exec(select(func.count()).select_from(HospitalService)).one() == 2
-        assert session.exec(select(func.count()).select_from(Room)).one() == 3
-        assert session.exec(select(func.count()).select_from(CareUnit)).one() == 6
-        assert session.exec(select(func.count()).select_from(CareUnitLayoutPosition)).one() == 6
+        assert session.exec(select(func.count()).select_from(HospitalService)).one() == 4
+        assert session.exec(select(func.count()).select_from(Room)).one() == 5
+        assert session.exec(select(func.count()).select_from(CareUnit)).one() == 10
+        assert session.exec(select(func.count()).select_from(CareUnitLayoutPosition)).one() == 10
+        assert set(session.exec(select(HospitalService.code)).all()) == {
+            "MED",
+            "UCI",
+            "UTI",
+            "CIR",
+        }
         assert {
             unit_type for unit_type in session.exec(select(CareUnit.unit_type)).all()
         } == {"bed"}

@@ -27,15 +27,22 @@ def test_all_authenticated_roles_can_read_active_structure(client) -> None:
         authenticate(client, role)
         response = client.get("/api/v1/hospital/structure")
         assert response.status_code == 200
-        assert response.json()["total"] == 2
-        assert sum(len(service["rooms"]) for service in response.json()["items"]) == 3
+        structure = response.json()
+        assert structure["total"] == 4
+        assert {service["code"] for service in structure["items"]} == {
+            "MED",
+            "UCI",
+            "UTI",
+            "CIR",
+        }
+        assert sum(len(service["rooms"]) for service in structure["items"]) == 5
         assert (
             sum(
                 len(room["care_units"])
-                for service in response.json()["items"]
+                for service in structure["items"]
                 for room in service["rooms"]
             )
-            == 6
+            == 10
         )
         client.cookies.clear()
 

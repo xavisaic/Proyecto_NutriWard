@@ -53,9 +53,9 @@ provenientes de la fuente institucional.
 
 ## Seeds ficticios
 
-- Servicios: Medicina y Unidad de Cuidados Intensivos.
-- Tres salas.
-- Seis ubicaciones de tipo cama con posición visual.
+- Servicios: Medicina, Unidad de Cuidados Intensivos, Unidad de Tratamiento Intermedio y Cirugía.
+- Cinco salas.
+- Diez ubicaciones de tipo cama con posición visual.
 - Asignación del nutricionista demo al servicio Medicina.
 
 ## Importación institucional
