@@ -26,7 +26,7 @@ def get_role_names(session: Session, user_id: uuid.UUID) -> list[str]:
     statement = (
         select(Role.name)
         .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id)
+        .where(UserRole.user_id == user_id, UserRole.is_active.is_(True))
         .order_by(Role.name)
     )
     return list(session.exec(statement).all())

@@ -7,6 +7,7 @@ from app.core.security import hash_password
 from app.db.session import engine
 from app.models.care_unit import CareUnit
 from app.models.care_unit_layout_position import CareUnitLayoutPosition
+from app.models.common import utc_now
 from app.models.hospital_service import HospitalService
 from app.models.nutritionist_service_assignment import NutritionistServiceAssignment
 from app.models.role import Role
@@ -86,6 +87,10 @@ def seed_database(session: Session) -> None:
         ).first()
         if assignment is None:
             session.add(UserRole(user_id=user.id, role_id=roles[role_name].id))
+        elif not assignment.is_active:
+            assignment.is_active = True
+            assignment.updated_at = utc_now()
+            session.add(assignment)
         users[role_name] = user
 
     services: dict[str, HospitalService] = {}
@@ -141,27 +146,32 @@ def seed_database(session: Session) -> None:
                     )
                 )
 
-    nutritionist_assignment = session.exec(
-        select(NutritionistServiceAssignment).where(
-            NutritionistServiceAssignment.nutritionist_user_id
-            == users["nutricionista"].id,
-            NutritionistServiceAssignment.service_id == services["MED"].id,
-        )
-    ).first()
-    if nutritionist_assignment is None:
-        session.add(
-            NutritionistServiceAssignment(
-                nutritionist_user_id=users["nutricionista"].id,
-                service_id=services["MED"].id,
+    for service_code in ("MED", "UCI"):
+        nutritionist_assignment = session.exec(
+            select(NutritionistServiceAssignment).where(
+                NutritionistServiceAssignment.nutritionist_user_id
+                == users["nutricionista"].id,
+                NutritionistServiceAssignment.service_id == services[service_code].id,
             )
-        )
+        ).first()
+        if nutritionist_assignment is None:
+            session.add(
+                NutritionistServiceAssignment(
+                    nutritionist_user_id=users["nutricionista"].id,
+                    service_id=services[service_code].id,
+                )
+            )
+        elif not nutritionist_assignment.is_active:
+            nutritionist_assignment.is_active = True
+            nutritionist_assignment.updated_at = utc_now()
+            session.add(nutritionist_assignment)
 
     session.commit()
 
 def main() -> None:
     with Session(engine) as session:
         seed_database(session)
-    print("Phase 3 demo identity and hospital structure are ready.")
+    print("Phase 4 demo identity, roles, assignments, and hospital structure are ready.")
 
 
 if __name__ == "__main__":

@@ -36,5 +36,20 @@ def test_seed_is_idempotent(database_engine) -> None:
             session.exec(
                 select(func.count()).select_from(NutritionistServiceAssignment)
             ).one()
-            == 1
+            == 2
         )
+        assigned_service_ids = set(
+            session.exec(
+                select(NutritionistServiceAssignment.service_id).where(
+                    NutritionistServiceAssignment.is_active.is_(True)
+                )
+            ).all()
+        )
+        assigned_codes = set(
+            session.exec(
+                select(HospitalService.code).where(
+                    HospitalService.id.in_(assigned_service_ids)
+                )
+            ).all()
+        )
+        assert assigned_codes == {"MED", "UCI"}

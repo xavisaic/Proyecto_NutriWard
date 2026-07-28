@@ -5,12 +5,17 @@ import {
   Button,
   Chip,
   Container,
+  Paper,
   Stack,
+  Tab,
+  Tabs,
   Toolbar,
   Typography,
 } from '@mui/material'
 import { LogOut, ShieldCheck } from 'lucide-react'
+import { useState } from 'react'
 
+import { AdministrationDashboard } from '../modules/administration/AdministrationDashboard'
 import { useAuth } from '../modules/auth/AuthContext'
 import { HospitalDashboard } from '../modules/hospital/HospitalDashboard'
 
@@ -19,6 +24,10 @@ export function HomePage() {
   const user = session!.user
   const canEdit = user.roles.some((role) => role === 'administrador' || role === 'jefatura')
   const canDelete = user.roles.includes('administrador')
+  const canReadAdministration = user.roles.some(
+    (role) => role === 'administrador' || role === 'jefatura',
+  )
+  const [module, setModule] = useState<'hospital' | 'administration'>('hospital')
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fa' }}>
@@ -69,11 +78,30 @@ export function HomePage() {
       </AppBar>
 
       <Container component="main" maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
-        <HospitalDashboard
-          canEdit={canEdit}
-          canDelete={canDelete}
-          csrfToken={session!.csrf_token}
-        />
+        {canReadAdministration && (
+          <Paper variant="outlined" sx={{ mb: 3 }}>
+            <Tabs
+              value={module}
+              onChange={(_, nextModule) => setModule(nextModule)}
+              aria-label="Módulos de NutriWard"
+            >
+              <Tab value="hospital" label="Estructura hospitalaria" />
+              <Tab value="administration" label="Administración" />
+            </Tabs>
+          </Paper>
+        )}
+        {module === 'hospital' ? (
+          <HospitalDashboard
+            canEdit={canEdit}
+            canDelete={canDelete}
+            csrfToken={session!.csrf_token}
+          />
+        ) : (
+          <AdministrationDashboard
+            canManage={canDelete}
+            csrfToken={session!.csrf_token}
+          />
+        )}
       </Container>
     </Box>
   )

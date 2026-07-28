@@ -21,6 +21,6 @@ class NutritionistServiceAssignment(SQLModel, table=True):
     nutritionist_user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
     # Fase 3 agregará la FK cuando exista la tabla services.
     service_id: uuid.UUID = Field(foreign_key="services.id", index=True)
-    is_active: bool = True
+    is_active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
