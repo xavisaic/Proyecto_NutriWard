@@ -1,6 +1,7 @@
-# Frontend (Fase 2)
+# Frontend (Fase 3)
 
-## Run local
+## Ejecución local
+
 ```bash
 npm install
 npm run dev -- --host 0.0.0.0 --port 5173
@@ -11,5 +12,9 @@ npm run dev -- --host 0.0.0.0 --port 5173
 ```bash
 npm test
 npm run build
-npm audit
 ```
+
+La pantalla principal muestra servicios, salas, ubicaciones asistenciales tipadas, posiciones
+y contadores. Los roles
+`jefatura` y `administrador` pueden crear e inactivar elementos; los roles operacionales
+tienen acceso de consulta.

@@ -18,6 +18,10 @@
 - `beds`
 - `bed_layout_positions`
 
+> Actualización: ADR-013 reemplaza `beds` y `bed_layout_positions` por
+> `care_units` y `care_unit_layout_positions` para representar camas, camillas,
+> puestos y boxes sin perder su tipo.
+
 > Nota: entidades clínicas avanzadas quedan fuera de Fase 2/3 y parten desde Fase 4+.
 
 ## 2) Alcance exacto de Fase 2

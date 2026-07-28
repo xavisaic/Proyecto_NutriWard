@@ -7,20 +7,18 @@ from sqlmodel import Field, SQLModel
 from app.models.common import utc_now
 
 
-class NutritionistServiceAssignment(SQLModel, table=True):
-    __tablename__ = "nutritionist_service_assignments"
+class Room(SQLModel, table=True):
+    __tablename__ = "rooms"
     __table_args__ = (
-        UniqueConstraint(
-            "nutritionist_user_id",
-            "service_id",
-            name="uq_nutritionist_service_assignments_user_service",
-        ),
+        UniqueConstraint("service_id", "code", name="uq_rooms_service_code"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    nutritionist_user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
-    # Fase 3 agregará la FK cuando exista la tabla services.
     service_id: uuid.UUID = Field(foreign_key="services.id", index=True)
-    is_active: bool = True
+    code: str = Field(max_length=30)
+    name: str = Field(max_length=120)
+    floor: str | None = Field(default=None, max_length=50)
+    notes: str | None = Field(default=None, max_length=500)
+    is_active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))

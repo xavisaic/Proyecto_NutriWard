@@ -20,6 +20,8 @@ const demoSession = {
   csrf_token: 'csrf-demo',
 }
 
+const emptyStructure = { items: [], total: 0 }
+
 function renderApp(path = '/') {
   const { hook } = memoryLocation({ path })
   return render(
@@ -52,6 +54,12 @@ describe('flujo de autenticación', () => {
           headers: { 'Content-Type': 'application/json' },
         }),
       )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(emptyStructure), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
 
     renderApp('/')
     await screen.findByRole('heading', { name: 'Iniciar sesión' })
@@ -61,24 +69,29 @@ describe('flujo de autenticación', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
 
     expect(await screen.findByRole('heading', { name: 'Administrador Demo' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/auth/login'),
       expect.objectContaining({ credentials: 'include', method: 'POST' }),
     )
   })
 
   it('restaura una sesión y muestra los roles activos', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(demoSession), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      return new Response(
+        JSON.stringify(url.includes('/hospital/structure') ? emptyStructure : demoSession),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    })
 
     renderApp('/')
 
     expect(await screen.findByText('administrador')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(demoSession.user.email)).toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: 'Estructura hospitalaria' })).toBeInTheDocument()
   })
 
   it('muestra un error genérico cuando las credenciales no son válidas', async () => {

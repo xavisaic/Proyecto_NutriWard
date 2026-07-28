@@ -70,3 +70,15 @@ def require_roles(*allowed_roles: str) -> Callable:
         return current
 
     return role_dependency
+
+
+def require_roles_with_csrf(*allowed_roles: str) -> Callable:
+    def role_dependency(current: CsrfProtectedSession) -> CurrentSession:
+        if current.roles.isdisjoint(allowed_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene permisos para realizar esta acción.",
+            )
+        return current
+
+    return role_dependency

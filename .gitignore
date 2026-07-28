@@ -57,6 +57,7 @@ exports/
 reports/
 artifacts/
 uploads/
+.codex_tmp_*/
 
 # Docker
 *.pid

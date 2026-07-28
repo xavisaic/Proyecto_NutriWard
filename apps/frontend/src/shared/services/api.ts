@@ -13,6 +13,60 @@ export interface Session {
   csrf_token: string
 }
 
+export type CareUnitType = 'bed' | 'stretcher' | 'station' | 'box'
+
+export interface CareUnitLayout {
+  id: string
+  care_unit_id: string
+  grid_x: number
+  grid_y: number
+  width: number
+  height: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HospitalCareUnit {
+  id: string
+  room_id: string
+  code: string
+  label: string | null
+  unit_type: CareUnitType
+  is_active: boolean
+  layout: CareUnitLayout | null
+  created_at: string
+  updated_at: string
+}
+
+export interface HospitalRoom {
+  id: string
+  service_id: string
+  code: string
+  name: string
+  floor: string | null
+  notes: string | null
+  is_active: boolean
+  care_units: HospitalCareUnit[]
+  created_at: string
+  updated_at: string
+}
+
+export interface HospitalService {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  is_active: boolean
+  rooms: HospitalRoom[]
+  created_at: string
+  updated_at: string
+}
+
+export interface HospitalStructure {
+  items: HospitalService[]
+  total: number
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,

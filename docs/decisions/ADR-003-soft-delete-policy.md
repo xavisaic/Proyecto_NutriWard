@@ -9,7 +9,7 @@ Se aplicará **soft delete** en catálogos y entidades administrativas; en datos
 ## Aplicar soft delete en
 - Usuarios (si se deshabilitan)
 - Catálogos: alimentos, preparaciones, regímenes base, modificadores, exámenes
-- Estructura hospitalaria: servicios/salas/camas (si salen de uso)
+- Estructura hospitalaria: servicios/salas/ubicaciones asistenciales (si salen de uso)
 
 ## No aplicar delete destructivo en
 - hospitalizaciones
