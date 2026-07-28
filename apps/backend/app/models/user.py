@@ -14,6 +14,6 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)
     full_name: str
     password_hash: str
-    is_active: bool = True
+    is_active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
     updated_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))

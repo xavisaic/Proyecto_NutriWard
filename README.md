@@ -1,6 +1,6 @@
 # Proyecto NutriWard
 
-Base técnica completa de Fase 3 para una plataforma web de gestión nutricional clínica.
+Base técnica completa de Fase 4 para una plataforma web de gestión nutricional clínica.
 
 ## Stack
 
@@ -13,6 +13,10 @@ Base técnica completa de Fase 3 para una plataforma web de gestión nutricional
 
 - Login con JWT en cookie HttpOnly y protección CSRF.
 - Roles `nutricionista`, `jefatura`, `alimentacion` y `administrador`.
+- Administración de usuarios con creación, edición e inactivación lógica.
+- Asignación y retiro lógico de múltiples roles por usuario.
+- Coberturas habituales no exclusivas de nutricionistas en uno o varios servicios.
+- Vistas de administración para usuarios/roles y asignaciones de servicios.
 - Restauración y cierre de sesión.
 - Auditoría de autenticación y cambios en la estructura hospitalaria.
 - Servicios, salas y ubicaciones asistenciales tipadas.
@@ -87,7 +91,8 @@ Todos usan la contraseña definida en `DEMO_USER_PASSWORD`:
 - `alimentacion@nutriward.local`
 - `administrador@nutriward.local`
 
-Los seeds incluyen servicios, salas y ubicaciones ficticias. No contienen información clínica real.
+Los seeds incluyen servicios, salas y ubicaciones ficticias, además de las asignaciones
+habituales del nutricionista demo a Medicina y UCI. No contienen información clínica real.
 
 ## Importar la estructura hospitalaria
 
@@ -112,13 +117,13 @@ checksum del archivo en auditoría y no elimina registros ausentes del Excel.
 En PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase3.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase4.ps1
 ```
 
 En Linux/macOS:
 
 ```bash
-./scripts_verify_phase3.sh
+./scripts_verify_phase4.sh
 ```
 
 El verificador ejecuta pruebas backend y frontend, build, contrato OpenAPI, metadata,
@@ -127,6 +132,6 @@ está disponible.
 
 ## Alcance
 
-Fase 3 incluye identidad, RBAC, auditoría base e infraestructura hospitalaria. Pacientes,
-hospitalizaciones, evaluaciones, prescripciones y otros datos clínicos comienzan en fases
-posteriores.
+Fase 4 incluye identidad, RBAC, auditoría, administración de coberturas habituales e
+infraestructura hospitalaria. Pacientes, hospitalizaciones, evaluaciones, prescripciones y
+otros datos clínicos comienzan en fases posteriores.

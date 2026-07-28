@@ -1,4 +1,4 @@
-# Backend (Fase 3)
+# Backend (Fase 4)
 
 ## Ejecución local
 
@@ -40,6 +40,14 @@ python -m pytest
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/users`
+- `GET|PATCH|DELETE /api/v1/users/{user_id}`
+- `POST /api/v1/users`
+- `GET|POST /api/v1/users/{user_id}/roles`
+- `DELETE /api/v1/users/{user_id}/roles/{role_id}`
+- `GET /api/v1/roles`
+- `GET /api/v1/roles/{role_id}/users`
+- `GET|POST /api/v1/nutritionist-service-assignments`
+- `PATCH|DELETE /api/v1/nutritionist-service-assignments/{assignment_id}`
 - `GET /api/v1/hospital/structure`
 - `POST|PATCH /api/v1/hospital/services`
 - `POST|PATCH /api/v1/hospital/rooms`
@@ -52,3 +60,7 @@ python -m pytest
 Las mutaciones hospitalarias requieren rol `jefatura` o `administrador` y token CSRF.
 La inactivación se realiza con `PATCH {"is_active": false}`; no existe borrado físico
 operativo para estas entidades.
+
+Las lecturas administrativas requieren `jefatura` o `administrador`. Solo
+`administrador` puede modificar usuarios, roles y asignaciones habituales, siempre con
+CSRF. Los `DELETE` administrativos inactivan registros y conservan su historial.

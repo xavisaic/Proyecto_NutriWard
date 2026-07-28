@@ -13,6 +13,42 @@ export interface Session {
   csrf_token: string
 }
 
+export interface UserList {
+  items: User[]
+  total: number
+}
+
+export interface Role {
+  id: string
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+}
+
+export interface RoleList {
+  items: Role[]
+  total: number
+}
+
+export interface NutritionistServiceAssignment {
+  id: string
+  nutritionist_user_id: string
+  nutritionist_name: string
+  nutritionist_email: string
+  service_id: string
+  service_code: string
+  service_name: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface NutritionistServiceAssignmentList {
+  items: NutritionistServiceAssignment[]
+  total: number
+}
+
 export type CareUnitType = 'bed' | 'stretcher' | 'station' | 'box'
 
 export interface CareUnitLayout {
