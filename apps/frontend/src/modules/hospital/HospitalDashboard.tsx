@@ -6,6 +6,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -25,14 +26,19 @@ import {
 } from '@mui/material'
 import Grid from '@mui/material/Grid2'
 import {
+  Activity,
   BedDouble,
   Building2,
+  ChevronDown,
+  ChevronUp,
   DoorOpen,
   MapPinned,
+  Monitor,
   Pencil,
   Plus,
   Power,
   RefreshCw,
+  Square,
   Trash2,
 } from 'lucide-react'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
@@ -93,6 +99,13 @@ const CARE_UNIT_TYPE_LABELS: Record<CareUnitType, string> = {
 
 function careUnitDisplayName(careUnit: HospitalCareUnit): string {
   return careUnit.label || `${CARE_UNIT_TYPE_LABELS[careUnit.unit_type]} ${careUnit.code}`
+}
+
+function careUnitIcon(unitType: CareUnitType, size = 17) {
+  if (unitType === 'stretcher') return <Activity size={size} aria-hidden="true" />
+  if (unitType === 'station') return <Monitor size={size} aria-hidden="true" />
+  if (unitType === 'box') return <Square size={size} aria-hidden="true" />
+  return <BedDouble size={size} aria-hidden="true" />
 }
 
 function errorMessage(error: unknown): string {
@@ -559,6 +572,7 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [busyEntityId, setBusyEntityId] = useState<string | null>(null)
+  const [expandedServiceIds, setExpandedServiceIds] = useState<Set<string>>(new Set())
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
@@ -587,8 +601,28 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
       services: services.filter((service) => service.is_active).length,
       rooms: rooms.filter((room) => room.is_active).length,
       careUnits: careUnits.filter((careUnit) => careUnit.is_active).length,
+      beds: careUnits.filter(
+        (careUnit) => careUnit.is_active && careUnit.unit_type === 'bed',
+      ).length,
     }
   }, [structure])
+
+  function toggleService(serviceId: string) {
+    setExpandedServiceIds((current) => {
+      const next = new Set(current)
+      if (next.has(serviceId)) next.delete(serviceId)
+      else next.add(serviceId)
+      return next
+    })
+  }
+
+  function expandAllServices() {
+    setExpandedServiceIds(new Set((structure?.items ?? []).map((service) => service.id)))
+  }
+
+  function collapseAllServices() {
+    setExpandedServiceIds(new Set())
+  }
 
   async function toggleEntity(
     kind: CreateKind,
@@ -668,8 +702,9 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
             value: counts.careUnits,
             icon: <BedDouble size={21} />,
           },
+          { label: 'Camas activas', value: counts.beds, icon: <BedDouble size={21} /> },
         ].map((summary) => (
-          <Grid key={summary.label} size={{ xs: 12, sm: 4 }}>
+          <Grid key={summary.label} size={{ xs: 6, md: 3 }}>
             <Card variant="outlined">
               <CardContent>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -709,36 +744,133 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
         </Alert>
       )}
 
-      <Stack spacing={2}>
-        {structure?.items.map((service) => (
-          <Card
-            key={service.id}
-            variant="outlined"
-            sx={{ opacity: service.is_active ? 1 : 0.62, overflow: 'visible' }}
-          >
-            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+      {structure && structure.items.length > 0 && (
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          gap={1.5}
+        >
+          <Box>
+            <Typography variant="h6" fontWeight={800}>Servicios clínicos</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Expande un servicio para consultar sus salas y ubicaciones.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={expandAllServices}
+              disabled={expandedServiceIds.size === structure.items.length}
+            >
+              Expandir todos
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={collapseAllServices}
+              disabled={expandedServiceIds.size === 0}
+            >
+              Colapsar todos
+            </Button>
+          </Stack>
+        </Stack>
+      )}
+
+      <Stack spacing={1.5}>
+        {structure?.items.map((service) => {
+          const isExpanded = expandedServiceIds.has(service.id)
+          const serviceCareUnits = service.rooms.flatMap((room) => room.care_units)
+          const bedCount = serviceCareUnits.filter((unit) => unit.unit_type === 'bed').length
+          const panelId = `service-panel-${service.id}`
+          return (
+            <Card
+              key={service.id}
+              variant="outlined"
+              sx={{
+                opacity: service.is_active ? 1 : 0.66,
+                overflow: 'hidden',
+                borderColor: isExpanded ? 'primary.light' : 'divider',
+                boxShadow: isExpanded ? '0 10px 30px rgba(18, 107, 91, 0.08)' : 'none',
+                transition: 'border-color 180ms ease, box-shadow 180ms ease',
+              }}
+            >
               <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                justifyContent="space-between"
-                gap={2}
+                direction={{ xs: 'column', md: 'row' }}
+                alignItems={{ xs: 'stretch', md: 'center' }}
+                sx={{ bgcolor: isExpanded ? 'rgba(18, 107, 91, 0.045)' : 'background.paper' }}
               >
-                <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                  <Building2 size={24} color="#126b5b" />
-                  <Box>
-                    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-                      <Typography variant="h6" fontWeight={800}>{service.name}</Typography>
-                      <Chip label={service.code} size="small" />
-                      {!service.is_active && <Chip label="Inactivo" size="small" />}
-                    </Stack>
-                    {service.description && (
-                      <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
-                        {service.description}
-                      </Typography>
-                    )}
-                  </Box>
-                </Stack>
+                <Button
+                  color="inherit"
+                  onClick={() => toggleService(service.id)}
+                  aria-expanded={isExpanded}
+                  aria-controls={panelId}
+                  aria-label={`${isExpanded ? 'Colapsar' : 'Expandir'} servicio ${service.name}`}
+                  sx={{
+                    flex: 1,
+                    justifyContent: 'flex-start',
+                    textAlign: 'left',
+                    textTransform: 'none',
+                    color: 'text.primary',
+                    borderRadius: 0,
+                    px: { xs: 2, md: 2.5 },
+                    py: 2,
+                    '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.light', outlineOffset: -3 },
+                  }}
+                >
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start" width="100%">
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        placeItems: 'center',
+                        width: 40,
+                        height: 40,
+                        borderRadius: 2,
+                        color: 'primary.main',
+                        bgcolor: 'rgba(18, 107, 91, 0.1)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Building2 size={22} aria-hidden="true" />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                        <Typography variant="h6" fontWeight={800}>{service.name}</Typography>
+                        <Chip label={service.code} size="small" color="primary" variant="outlined" />
+                        <Chip
+                          label={service.is_active ? 'Activo' : 'Inactivo'}
+                          size="small"
+                          color={service.is_active ? 'success' : 'default'}
+                          variant={service.is_active ? 'outlined' : 'filled'}
+                        />
+                      </Stack>
+                      {service.description && (
+                        <Typography color="text.secondary" variant="body2" sx={{ mt: 0.35 }}>
+                          {service.description}
+                        </Typography>
+                      )}
+                      <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
+                        <Chip label={`${service.rooms.length} salas`} size="small" />
+                        <Chip label={`${serviceCareUnits.length} ubicaciones`} size="small" />
+                        <Chip label={`${bedCount} camas`} size="small" />
+                      </Stack>
+                    </Box>
+                    <Box sx={{ color: 'primary.main', alignSelf: 'center', display: 'flex' }}>
+                      {isExpanded
+                        ? <ChevronUp size={22} aria-hidden="true" />
+                        : <ChevronDown size={22} aria-hidden="true" />}
+                    </Box>
+                  </Stack>
+                </Button>
+
                 {canEdit && (
-                  <Stack direction="row" spacing={1}>
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    alignItems="center"
+                    sx={{ px: { xs: 1.5, md: 2 }, pb: { xs: 1.5, md: 0 }, flexShrink: 0 }}
+                  >
                     {service.is_active && (
                       <Button
                         size="small"
@@ -789,189 +921,225 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                 )}
               </Stack>
 
-              <Divider sx={{ my: 2.5 }} />
-              {service.rooms.length === 0 ? (
-                <Typography color="text.secondary" variant="body2">Sin salas registradas.</Typography>
-              ) : (
-                <Grid container spacing={2}>
-                  {service.rooms.map((room) => (
-                    <Grid key={room.id} size={{ xs: 12, lg: 6 }}>
-                      <Box
-                        sx={{
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                          p: 2,
-                          height: '100%',
-                          opacity: room.is_active ? 1 : 0.65,
-                        }}
-                      >
-                        <Stack direction="row" justifyContent="space-between" gap={1}>
-                          <Box>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <DoorOpen size={18} />
-                              <Typography fontWeight={750}>{room.name}</Typography>
-                              <Chip label={room.code} size="small" variant="outlined" />
-                            </Stack>
-                            <Typography variant="caption" color="text.secondary">
-                              {room.floor ?? 'Sector no indicado'} · {room.care_units.length} ubicaciones
-                            </Typography>
-                            {room.notes && (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ display: 'block', mt: 0.5 }}
-                              >
-                                {room.notes}
-                              </Typography>
-                            )}
-                          </Box>
-                          {canEdit && (
-                            <Stack direction="row">
-                              {room.is_active && (
-                                <Tooltip title="Agregar ubicación">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => setCreateTarget({
-                                      kind: 'careUnit',
-                                      parentId: room.id,
-                                      parentName: room.name,
-                                      suggestedCode: suggestCareUnitCode(room.care_units),
-                                    })}
-                                    aria-label={`Agregar ubicación a ${room.name}`}
+              <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                <CardContent id={panelId} sx={{ p: { xs: 2, md: 2.5 }, pt: 0 }}>
+                  <Divider sx={{ mb: 2.5 }} />
+                  {service.rooms.length === 0 ? (
+                    <Box
+                      sx={{
+                        border: '1px dashed',
+                        borderColor: 'divider',
+                        borderRadius: 2,
+                        px: 2,
+                        py: 3,
+                        textAlign: 'center',
+                        bgcolor: 'action.hover',
+                      }}
+                    >
+                      <DoorOpen size={24} aria-hidden="true" />
+                      <Typography fontWeight={700} sx={{ mt: 0.75 }}>Sin salas registradas</Typography>
+                      <Typography color="text.secondary" variant="body2">
+                        Este servicio todavía no contiene salas o sectores.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Grid container spacing={2}>
+                      {service.rooms.map((room) => (
+                        <Grid key={room.id} size={{ xs: 12, xl: 6 }}>
+                          <Box
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              borderRadius: 2.5,
+                              p: { xs: 1.5, sm: 2 },
+                              height: '100%',
+                              opacity: room.is_active ? 1 : 0.65,
+                              bgcolor: 'background.paper',
+                            }}
+                          >
+                            <Stack direction="row" justifyContent="space-between" gap={1}>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                                  <DoorOpen size={18} color="#126b5b" aria-hidden="true" />
+                                  <Typography fontWeight={800}>{room.name}</Typography>
+                                  <Chip label={room.code} size="small" variant="outlined" />
+                                  {!room.is_active && <Chip label="Inactiva" size="small" />}
+                                </Stack>
+                                <Typography variant="caption" color="text.secondary">
+                                  {room.floor ?? 'Sector no indicado'} · {room.care_units.length} ubicaciones
+                                </Typography>
+                                {room.notes && (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: 'block', mt: 0.5 }}
                                   >
-                                    <Plus size={17} />
-                                  </IconButton>
-                                </Tooltip>
-                              )}
-                              <Tooltip title="Editar sala">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => setEditTarget({ kind: 'room', entity: room })}
-                                  aria-label={`Editar sala ${room.name}`}
-                                >
-                                  <Pencil size={17} />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    disabled={busyEntityId === room.id}
-                                    onClick={() => void toggleEntity('room', room)}
-                                    aria-label={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}
-                                  >
-                                    <Power size={17} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                              {canDelete && !room.is_active && (
-                                <Tooltip title="Eliminar registro erróneo">
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => setDeleteTarget({ kind: 'room', entity: room })}
-                                    aria-label={`Eliminar definitivamente sala ${room.name}`}
-                                  >
-                                    <Trash2 size={17} />
-                                  </IconButton>
-                                </Tooltip>
-                              )}
-                            </Stack>
-                          )}
-                        </Stack>
-
-                        <Stack direction="row" useFlexGap flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
-                          {room.care_units.map((careUnit) => (
-                            <Box
-                              key={careUnit.id}
-                              sx={{
-                                minWidth: 112,
-                                border: '1px solid',
-                                borderColor: careUnit.is_active ? 'primary.light' : 'divider',
-                                bgcolor: careUnit.is_active
-                                  ? 'rgba(18, 107, 91, 0.06)'
-                                  : 'action.disabledBackground',
-                                borderRadius: 1.5,
-                                px: 1.25,
-                                py: 1,
-                                opacity: careUnit.is_active ? 1 : 0.62,
-                              }}
-                            >
-                              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                <BedDouble size={17} color={careUnit.is_active ? '#126b5b' : '#777'} />
-                                {canEdit && (
-                                  <Stack direction="row">
+                                    {room.notes}
+                                  </Typography>
+                                )}
+                              </Box>
+                              {canEdit && (
+                                <Stack direction="row" sx={{ flexShrink: 0 }}>
+                                  {room.is_active && (
+                                    <Tooltip title="Agregar ubicación">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => setCreateTarget({
+                                          kind: 'careUnit',
+                                          parentId: room.id,
+                                          parentName: room.name,
+                                          suggestedCode: suggestCareUnitCode(room.care_units),
+                                        })}
+                                        aria-label={`Agregar ubicación a ${room.name}`}
+                                      >
+                                        <Plus size={17} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                  <Tooltip title="Editar sala">
                                     <IconButton
                                       size="small"
-                                      onClick={() => setEditTarget({ kind: 'careUnit', entity: careUnit })}
-                                      aria-label={`Editar ubicación ${careUnitDisplayName(careUnit)}`}
-                                      sx={{ p: 0.25 }}
+                                      onClick={() => setEditTarget({ kind: 'room', entity: room })}
+                                      aria-label={`Editar sala ${room.name}`}
                                     >
-                                      <Pencil size={13} />
+                                      <Pencil size={17} />
                                     </IconButton>
-                                    <IconButton
-                                      size="small"
-                                      disabled={busyEntityId === careUnit.id}
-                                      onClick={() => void toggleEntity('careUnit', careUnit)}
-                                      aria-label={
-                                        careUnit.is_active
-                                          ? 'Inactivar ubicación'
-                                          : 'Reactivar ubicación'
-                                      }
-                                      sx={{ p: 0.25 }}
-                                    >
-                                      <Power size={13} />
-                                    </IconButton>
-                                    {canDelete && !careUnit.is_active && (
+                                  </Tooltip>
+                                  <Tooltip title={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        disabled={busyEntityId === room.id}
+                                        onClick={() => void toggleEntity('room', room)}
+                                        aria-label={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}
+                                      >
+                                        <Power size={17} />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                  {canDelete && !room.is_active && (
+                                    <Tooltip title="Eliminar registro erróneo">
                                       <IconButton
                                         size="small"
                                         color="error"
-                                        onClick={() => setDeleteTarget({ kind: 'careUnit', entity: careUnit })}
-                                        aria-label={
-                                          `Eliminar definitivamente ubicación ${careUnitDisplayName(careUnit)}`
-                                        }
-                                        sx={{ p: 0.25 }}
+                                        onClick={() => setDeleteTarget({ kind: 'room', entity: room })}
+                                        aria-label={`Eliminar definitivamente sala ${room.name}`}
                                       >
-                                        <Trash2 size={13} />
+                                        <Trash2 size={17} />
                                       </IconButton>
-                                    )}
-                                  </Stack>
-                                )}
-                              </Stack>
-                              <Typography variant="body2" fontWeight={750}>
-                                {careUnitDisplayName(careUnit)}
-                              </Typography>
-                              <Chip
-                                label={CARE_UNIT_TYPE_LABELS[careUnit.unit_type]}
-                                size="small"
-                                variant="outlined"
-                                sx={{ height: 18, fontSize: 10, my: 0.4 }}
-                              />
-                              <Stack direction="row" spacing={0.5} alignItems="center">
-                                <MapPinned size={11} />
-                                <Typography variant="caption" color="text.secondary">
-                                  {careUnit.layout
-                                    ? `${careUnit.layout.grid_x}, ${careUnit.layout.grid_y}`
-                                    : 'Sin posición'}
+                                    </Tooltip>
+                                  )}
+                                </Stack>
+                              )}
+                            </Stack>
+
+                            {room.care_units.length === 0 ? (
+                              <Box
+                                sx={{
+                                  border: '1px dashed',
+                                  borderColor: 'divider',
+                                  borderRadius: 1.5,
+                                  p: 2,
+                                  mt: 2,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                <Typography variant="body2" color="text.secondary">
+                                  Sin ubicaciones asistenciales.
                                 </Typography>
+                              </Box>
+                            ) : (
+                              <Stack direction="row" useFlexGap flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
+                                {room.care_units.map((careUnit) => (
+                                  <Box
+                                    key={careUnit.id}
+                                    sx={{
+                                      flex: '1 1 142px',
+                                      minWidth: 132,
+                                      maxWidth: { sm: 210 },
+                                      border: '1px solid',
+                                      borderColor: careUnit.is_active ? 'primary.light' : 'divider',
+                                      bgcolor: careUnit.is_active
+                                        ? 'rgba(18, 107, 91, 0.055)'
+                                        : 'action.disabledBackground',
+                                      borderRadius: 2,
+                                      px: 1.25,
+                                      py: 1.15,
+                                      opacity: careUnit.is_active ? 1 : 0.62,
+                                    }}
+                                  >
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                      <Box sx={{ color: careUnit.is_active ? 'primary.main' : 'text.disabled', display: 'flex' }}>
+                                        {careUnitIcon(careUnit.unit_type)}
+                                      </Box>
+                                      {canEdit && (
+                                        <Stack direction="row">
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => setEditTarget({ kind: 'careUnit', entity: careUnit })}
+                                            aria-label={`Editar ubicación ${careUnitDisplayName(careUnit)}`}
+                                            sx={{ p: 0.25 }}
+                                          >
+                                            <Pencil size={13} />
+                                          </IconButton>
+                                          <IconButton
+                                            size="small"
+                                            disabled={busyEntityId === careUnit.id}
+                                            onClick={() => void toggleEntity('careUnit', careUnit)}
+                                            aria-label={careUnit.is_active ? 'Inactivar ubicación' : 'Reactivar ubicación'}
+                                            sx={{ p: 0.25 }}
+                                          >
+                                            <Power size={13} />
+                                          </IconButton>
+                                          {canDelete && !careUnit.is_active && (
+                                            <IconButton
+                                              size="small"
+                                              color="error"
+                                              onClick={() => setDeleteTarget({ kind: 'careUnit', entity: careUnit })}
+                                              aria-label={`Eliminar definitivamente ubicación ${careUnitDisplayName(careUnit)}`}
+                                              sx={{ p: 0.25 }}
+                                            >
+                                              <Trash2 size={13} />
+                                            </IconButton>
+                                          )}
+                                        </Stack>
+                                      )}
+                                    </Stack>
+                                    <Typography variant="body2" fontWeight={800} sx={{ mt: 0.4 }}>
+                                      {careUnitDisplayName(careUnit)}
+                                    </Typography>
+                                    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ my: 0.65 }}>
+                                      <Chip
+                                        label={CARE_UNIT_TYPE_LABELS[careUnit.unit_type]}
+                                        size="small"
+                                        color={careUnit.unit_type === 'bed' ? 'primary' : 'default'}
+                                        variant="outlined"
+                                        sx={{ height: 20, fontSize: 10 }}
+                                      />
+                                      <Chip label={careUnit.code} size="small" sx={{ height: 20, fontSize: 10 }} />
+                                    </Stack>
+                                    <Stack direction="row" spacing={0.5} alignItems="center">
+                                      <MapPinned size={12} aria-hidden="true" />
+                                      <Typography variant="caption" color="text.secondary">
+                                        {careUnit.layout
+                                          ? `Posición ${careUnit.layout.grid_x}, ${careUnit.layout.grid_y}`
+                                          : 'Sin posición'}
+                                      </Typography>
+                                    </Stack>
+                                  </Box>
+                                ))}
                               </Stack>
-                            </Box>
-                          ))}
-                          {room.care_units.length === 0 && (
-                            <Typography variant="body2" color="text.secondary">
-                              Sin ubicaciones asistenciales.
-                            </Typography>
-                          )}
-                        </Stack>
-                      </Box>
+                            )}
+                          </Box>
+                        </Grid>
+                      ))}
                     </Grid>
-                  ))}
-                </Grid>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                  )}
+                </CardContent>
+              </Collapse>
+            </Card>
+          )
+        })}
       </Stack>
 
       {createTarget && (

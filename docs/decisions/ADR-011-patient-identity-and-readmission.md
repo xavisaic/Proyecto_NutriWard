@@ -5,9 +5,11 @@
 
 ## Decisión
 
-El paciente se identificará inequívocamente mediante su RUT. El sistema utilizará
-un UUID como identificador técnico interno y mantendrá el RUT normalizado como
-identificador único de negocio.
+El RUT es el identificador único de negocio para pacientes identificados. Los pacientes no identificados o con identidad provisoria utilizan temporalmente un identificador institucional único. La identificación posterior o conciliación debe conservar toda la trazabilidad histórica.
+
+El sistema utiliza un UUID como identificador técnico interno. Una ficha NN no
+recibe RUT ficticio y conserva permanentemente su identificador temporal, incluso
+después de identificarla o conciliarla con una ficha ya existente.
 
 El nutricionista podrá buscar al paciente por RUT o por identificador
 hospitalario. El RUT deberá validarse, normalizarse y comprobarse antes de crear
@@ -56,6 +58,10 @@ La operación deberá registrar:
 - El RUT se almacenará sin puntos y con dígito verificador validado; el formato
   de presentación se aplicará únicamente en la interfaz.
 - No se permitirá crear una segunda ficha con un RUT ya registrado.
+- La conciliación será explícita y transaccional; nunca eliminará fichas,
+  episodios ni movimientos históricos.
+- Si ambas fichas tienen una hospitalización activa, la conciliación se
+  rechazará sin cambios parciales.
 - Las correcciones del RUT y las vinculaciones entre episodios deberán quedar
   auditadas.
 - Todos los registros clínicos conservarán su episodio hospitalario de origen.

@@ -1,6 +1,6 @@
 # Proyecto NutriWard
 
-Base técnica completa de Fase 4 para una plataforma web de gestión nutricional clínica.
+Base técnica completa de Fase 5 para una plataforma web de gestión nutricional clínica.
 
 ## Stack
 
@@ -30,6 +30,10 @@ Base técnica completa de Fase 4 para una plataforma web de gestión nutricional
 - Soft delete con protección de dependencias activas.
 - Eliminación excepcional de registros erróneos, restringida a administrador.
 - Migraciones y seeds idempotentes con datos ficticios.
+- Pacientes identificados, provisorios y NN con RUT validado o identificador temporal único.
+- Hospitalizaciones longitudinales con una sola activa por paciente.
+- Asignación y traslado entre camas con ubicación actual e historial completo.
+- Identificación posterior y conciliación no destructiva de fichas provisorias.
 
 ## Inicio con Docker
 
@@ -91,8 +95,9 @@ Todos usan la contraseña definida en `DEMO_USER_PASSWORD`:
 - `alimentacion@nutriward.local`
 - `administrador@nutriward.local`
 
-Los seeds incluyen servicios, salas y ubicaciones ficticias, además de las asignaciones
-habituales del nutricionista demo a Medicina y UCI. No contienen información clínica real.
+Los seeds incluyen servicios, salas, camas y pacientes ficticios, ingresos activos e
+históricos, una hospitalización sin cama y las asignaciones habituales del nutricionista
+demo a Medicina y UCI. No contienen información clínica real.
 
 ## Importar la estructura hospitalaria
 
@@ -117,13 +122,13 @@ checksum del archivo en auditoría y no elimina registros ausentes del Excel.
 En PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase4.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase5.ps1
 ```
 
 En Linux/macOS:
 
 ```bash
-./scripts_verify_phase4.sh
+./scripts_verify_phase5.sh
 ```
 
 El verificador ejecuta pruebas backend y frontend, build, contrato OpenAPI, metadata,
@@ -132,6 +137,7 @@ está disponible.
 
 ## Alcance
 
-Fase 4 incluye identidad, RBAC, auditoría, administración de coberturas habituales e
-infraestructura hospitalaria. Pacientes, hospitalizaciones, evaluaciones, prescripciones y
-otros datos clínicos comienzan en fases posteriores.
+Fase 5 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+hospitalizaciones y ubicación actual. Evaluaciones nutricionales, diagnósticos,
+requerimientos, prescripciones, raciones y otros datos clínico-nutricionales permanecen
+fuera de alcance.

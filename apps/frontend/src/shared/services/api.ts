@@ -103,6 +103,85 @@ export interface HospitalStructure {
   total: number
 }
 
+export type IdentityStatus = 'unidentified' | 'provisional' | 'identified'
+export type AdmissionStatus = 'active' | 'discharged' | 'deceased' | 'closed'
+
+export interface PatientLocation {
+  id: string
+  admission_id: string
+  care_unit_id: string
+  started_at: string
+  ended_at: string | null
+  reason: string | null
+  assigned_by_user_id: string | null
+  ended_by_user_id: string | null
+  created_at: string
+  care_unit_code: string | null
+  care_unit_label: string | null
+  room_id: string | null
+  room_code: string | null
+  room_name: string | null
+  service_id: string | null
+  service_code: string | null
+  service_name: string | null
+}
+
+export interface Admission {
+  id: string
+  patient_id: string
+  admission_identifier: string
+  status: AdmissionStatus
+  admitted_at: string
+  ended_at: string | null
+  end_reason: string | null
+  created_at: string
+  updated_at: string
+  current_location: PatientLocation | null
+  status_history: Array<{
+    id: string
+    from_status: AdmissionStatus | null
+    to_status: AdmissionStatus
+    reason: string | null
+    changed_at: string
+  }>
+  location_history: PatientLocation[]
+}
+
+export interface Patient {
+  id: string
+  identity_status: IdentityStatus
+  temporary_identifier: string | null
+  rut: string | null
+  given_names: string | null
+  first_surname: string | null
+  second_surname: string | null
+  date_of_birth: string | null
+  date_of_birth_is_estimated: boolean
+  sex: 'female' | 'male' | 'intersex' | 'unknown' | null
+  hospital_identifier: string | null
+  phone: string | null
+  provisional_description: string | null
+  identified_at: string | null
+  merged_into_patient_id: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  active_admission: Admission | null
+  admissions?: Admission[]
+}
+
+export interface PatientList {
+  items: Patient[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface AdmissionList {
+  items: Admission[]
+  total: number
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,

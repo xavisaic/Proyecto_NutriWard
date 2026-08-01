@@ -1,4 +1,4 @@
-# Backend (Fase 4)
+# Backend (Fase 5)
 
 ## Ejecución local
 
@@ -56,6 +56,24 @@ python -m pytest
 - `DELETE /api/v1/hospital/services/{service_id}` (sólo administrador)
 - `DELETE /api/v1/hospital/rooms/{room_id}` (sólo administrador)
 - `DELETE /api/v1/hospital/care-units/{care_unit_id}` (sólo administrador)
+- `GET|POST /api/v1/patients`
+- `POST /api/v1/patients/unidentified`
+- `GET /api/v1/patients/{patient_id}`
+- `PATCH /api/v1/patients/{patient_id}/identity`
+- `POST /api/v1/patients/{patient_id}/reconcile`
+- `GET /api/v1/patients/{patient_id}/admissions`
+- `POST /api/v1/admissions`
+- `GET /api/v1/admissions/active`
+- `GET /api/v1/admissions/{admission_id}`
+- `PATCH /api/v1/admissions/{admission_id}/status`
+- `GET|POST /api/v1/admissions/{admission_id}/location`
+- `GET /api/v1/admissions/{admission_id}/location-history`
+
+## Tablas de aplicación
+
+`users`, `roles`, `user_roles`, `audit_logs`, `nutritionist_service_assignments`,
+`services`, `rooms`, `care_units`, `care_unit_layout_positions`, `patients`,
+`admissions`, `admission_status_history` y `patient_location_history`.
 
 Las mutaciones hospitalarias requieren rol `jefatura` o `administrador` y token CSRF.
 La inactivación se realiza con `PATCH {"is_active": false}`; no existe borrado físico
@@ -64,3 +82,8 @@ operativo para estas entidades.
 Las lecturas administrativas requieren `jefatura` o `administrador`. Solo
 `administrador` puede modificar usuarios, roles y asignaciones habituales, siempre con
 CSRF. Los `DELETE` administrativos inactivan registros y conservan su historial.
+
+Las lecturas de pacientes permiten `nutricionista`, `jefatura` o `administrador`.
+Las mutaciones clínicas están restringidas a `nutricionista` y `jefatura`;
+`administrador` opera en modo de sólo lectura para soporte. `alimentacion` no
+tiene acceso a las fichas. Todas las mutaciones requieren CSRF y generan auditoría.

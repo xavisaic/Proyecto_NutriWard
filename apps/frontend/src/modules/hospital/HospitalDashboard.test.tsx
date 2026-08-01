@@ -60,7 +60,7 @@ afterEach(() => {
 })
 
 describe('estructura hospitalaria', () => {
-  it('muestra la jerarquía y sus contadores', async () => {
+  it('muestra servicios colapsados con contadores y expansión accesible', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(structure), {
         status: 200,
@@ -71,11 +71,24 @@ describe('estructura hospitalaria', () => {
     render(<HospitalDashboard canEdit={false} canDelete={false} csrfToken="csrf-demo" />)
 
     expect(await screen.findByText('Medicina')).toBeInTheDocument()
-    expect(screen.getByText('Sala A101')).toBeInTheDocument()
+    expect(screen.getByText('1 salas')).toBeInTheDocument()
+    expect(screen.getByText('1 ubicaciones')).toBeInTheDocument()
+    expect(screen.getByText('1 camas')).toBeInTheDocument()
+    expect(screen.queryByText('Sala A101')).not.toBeInTheDocument()
+    const expandButton = screen.getByRole('button', { name: 'Expandir servicio Medicina' })
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    expect(expandButton).toHaveAttribute('aria-controls', `service-panel-${structure.items[0].id}`)
+    await userEvent.click(expandButton)
+
+    expect(await screen.findByText('Sala A101')).toBeInTheDocument()
     expect(screen.getByText('Sector de observación')).toBeInTheDocument()
     expect(screen.getByText('Cama 01')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Nuevo servicio' })).not.toBeInTheDocument()
-    expect(screen.getByText('2, 1')).toBeInTheDocument()
+    expect(screen.getByText('Posición 2, 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Colapsar servicio Medicina' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   })
 
   it('permite a un editor abrir y enviar el formulario de servicio', async () => {
@@ -142,6 +155,8 @@ describe('estructura hospitalaria', () => {
     )
 
     render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir servicio Medicina' }))
     await screen.findByText('Sala A101')
     await userEvent.click(
       screen.getByRole('button', { name: 'Agregar ubicación a Sala A101' }),
@@ -165,6 +180,8 @@ describe('estructura hospitalaria', () => {
     )
 
     render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir servicio Medicina' }))
     await screen.findByText('Cama 01')
     await userEvent.click(
       screen.getByRole('button', { name: 'Editar ubicación Cama 01' }),
@@ -176,5 +193,46 @@ describe('estructura hospitalaria', () => {
     expect(within(dialog).getByRole('combobox', { name: 'Tipo' })).toHaveTextContent('Cama')
     expect(within(dialog).getByLabelText('Columna')).toHaveValue(2)
     expect(within(dialog).getByLabelText('Fila')).toHaveValue(1)
+  })
+
+  it('permite expandir y colapsar todos los servicios', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(structure), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+    expect(screen.queryByText('Sala A101')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir todos' }))
+    expect(await screen.findByText('Sala A101')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expandir todos' })).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Colapsar todos' }))
+    await waitFor(() => expect(screen.queryByText('Sala A101')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Colapsar todos' })).toBeDisabled()
+  })
+
+  it('muestra un estado vacío dentro de un servicio sin salas', async () => {
+    const emptyService = {
+      items: [{ ...structure.items[0], rooms: [] }],
+      total: 1,
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(emptyService), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir servicio Medicina' }))
+
+    expect(await screen.findByText('Sin salas registradas')).toBeInTheDocument()
+    expect(screen.getByText('Este servicio todavía no contiene salas o sectores.')).toBeInTheDocument()
   })
 })

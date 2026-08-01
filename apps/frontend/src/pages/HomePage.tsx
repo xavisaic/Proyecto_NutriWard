@@ -18,6 +18,7 @@ import { useState } from 'react'
 import { AdministrationDashboard } from '../modules/administration/AdministrationDashboard'
 import { useAuth } from '../modules/auth/AuthContext'
 import { HospitalDashboard } from '../modules/hospital/HospitalDashboard'
+import { PatientsDashboard } from '../modules/patients/PatientsDashboard'
 
 export function HomePage() {
   const { logout, session } = useAuth()
@@ -27,7 +28,15 @@ export function HomePage() {
   const canReadAdministration = user.roles.some(
     (role) => role === 'administrador' || role === 'jefatura',
   )
-  const [module, setModule] = useState<'hospital' | 'administration'>('hospital')
+  const canReadPatients = user.roles.some(
+    (role) => role === 'administrador' || role === 'jefatura' || role === 'nutricionista',
+  )
+  const canMutatePatients = user.roles.some(
+    (role) => role === 'jefatura' || role === 'nutricionista',
+  )
+  const [module, setModule] = useState<'hospital' | 'patients' | 'administration'>(
+    user.roles.includes('nutricionista') && !canReadAdministration ? 'patients' : 'hospital',
+  )
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fa' }}>
@@ -78,7 +87,7 @@ export function HomePage() {
       </AppBar>
 
       <Container component="main" maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
-        {canReadAdministration && (
+        {(canReadPatients || canReadAdministration) && (
           <Paper variant="outlined" sx={{ mb: 3 }}>
             <Tabs
               value={module}
@@ -86,7 +95,8 @@ export function HomePage() {
               aria-label="Módulos de NutriWard"
             >
               <Tab value="hospital" label="Estructura hospitalaria" />
-              <Tab value="administration" label="Administración" />
+              {canReadPatients && <Tab value="patients" label="Pacientes" />}
+              {canReadAdministration && <Tab value="administration" label="Administración" />}
             </Tabs>
           </Paper>
         )}
@@ -94,6 +104,11 @@ export function HomePage() {
           <HospitalDashboard
             canEdit={canEdit}
             canDelete={canDelete}
+            csrfToken={session!.csrf_token}
+          />
+        ) : module === 'patients' ? (
+          <PatientsDashboard
+            canMutate={canMutatePatients}
             csrfToken={session!.csrf_token}
           />
         ) : (
