@@ -38,6 +38,12 @@ mutaciones y traducen conflictos de integridad concurrentes a `409 Conflict`.
 Crear una hospitalización con cama, trasladar, terminar y conciliar se ejecutan
 como transacciones únicas.
 
+Las revisiones técnicas `20260805_0007` y `20260805_0008` hacen único el número
+de ficha hospitalaria no nulo, normalizan sus valores a mayúsculas y agregan una
+restricción que impide almacenar valores sin normalizar. La segunda revisión se
+detiene si detecta registros históricos que sólo difieren por mayúsculas y
+minúsculas, para no fusionarlos automáticamente.
+
 ## Identidad y conciliación
 
 El RUT se recibe con o sin puntos, se normaliza a `XXXXXXXX-D`, se valida mediante
@@ -48,11 +54,37 @@ Los pacientes NN y provisorios reciben `NN-YYYYMMDD-XXXX`. El identificador qued
 reservado permanentemente incluso después de identificar o fusionar la ficha.
 La identificación posterior actualiza la misma ficha cuando el RUT no existe.
 
+Antes de crear una ficha, la interfaz consulta coincidencias potenciales por RUT,
+número de ficha, nombres y apellido. Una coincidencia exacta por RUT o número de
+ficha bloquea el duplicado y permite abrir la ficha existente. Una coincidencia
+sólo nominal se muestra como advertencia y exige confirmar que corresponde a otra
+persona. Esta ayuda no sustituye las restricciones únicas de la base de datos.
+
 Si el RUT ya pertenece a otro paciente, la conciliación es explícita. La ficha
 identificada es canónica, las hospitalizaciones se relocalizan conservando sus
 UUID e historiales y la provisoria queda inactiva con paciente canónico, usuario,
 fecha y motivo. Si ambas fichas tienen ingresos activos, toda la transacción se
-rechaza.
+rechaza en el flujo habitual.
+
+La interfaz no interpreta automáticamente la coincidencia de RUT como identidad
+confirmada. Antes de conciliar muestra en paralelo la ficha NN actual y la ficha
+histórica principal, incluyendo nombre disponible, RUT, número de ficha, edad,
+hospitalización activa, ubicación y cantidad de hospitalizaciones registradas.
+El operador debe ingresar un motivo de al menos diez caracteres y confirmar
+expresamente que ambas fichas corresponden a la misma persona.
+
+Cuando ambas fichas tienen una hospitalización activa, únicamente `jefatura`
+puede usar el flujo de resolución administrativa. Debe seleccionar cuál ingreso
+es el duplicado; éste termina como `closed` con motivo de duplicidad, libera su
+cama y conserva sus historiales. El otro ingreso permanece `active` y luego ambas
+fichas se concilian en la misma transacción. Este cierre no equivale a un alta
+médica (`discharged`) y queda identificado mediante eventos de auditoría propios.
+
+La ficha identificada preexistente siempre permanece como principal. Se trasladan
+las hospitalizaciones de la ficha NN —incluida su ubicación actual— sin cambiar sus
+UUID ni historiales. La ficha NN no se elimina: queda inactiva, vinculada a la
+principal y disponible para auditoría. Nombres informados y números de ficha
+distintos no sobrescriben automáticamente los datos canónicos.
 
 ## Hospitalizaciones y ubicaciones
 
@@ -82,9 +114,11 @@ Pacientes:
 - `POST /api/v1/patients`
 - `POST /api/v1/patients/unidentified`
 - `GET /api/v1/patients`
+- `GET /api/v1/patients/potential-matches`
 - `GET /api/v1/patients/{patient_id}`
 - `PATCH /api/v1/patients/{patient_id}/identity`
 - `POST /api/v1/patients/{patient_id}/reconcile`
+- `POST /api/v1/patients/{patient_id}/reconcile-active-conflict` (sólo `jefatura`)
 
 Hospitalizaciones y ubicación:
 

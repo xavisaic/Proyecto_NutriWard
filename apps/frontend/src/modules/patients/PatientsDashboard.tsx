@@ -5,6 +5,7 @@ import {
   Card,
   CardActionArea,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -13,6 +14,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Pagination,
@@ -35,10 +37,12 @@ import {
   IdentityStatus,
   Patient,
   PatientList,
+  PotentialPatientMatches,
 } from '../../shared/services/api'
 
 interface PatientsDashboardProps {
   canMutate: boolean
+  canResolveActiveConflicts?: boolean
   csrfToken: string
 }
 
@@ -56,6 +60,10 @@ const IDENTITY_COLORS: Record<IdentityStatus, 'warning' | 'info' | 'success'> = 
 
 function patientName(patient: Patient): string {
   if (patient.identity_status === 'unidentified') {
+    const availableName = [patient.given_names, patient.first_surname, patient.second_surname]
+      .filter(Boolean)
+      .join(' ')
+    if (availableName) return `${availableName} · ${patient.temporary_identifier}`
     return `Paciente NN · ${patient.temporary_identifier}`
   }
   const name = [patient.given_names, patient.first_surname, patient.second_surname]
@@ -64,10 +72,39 @@ function patientName(patient: Patient): string {
   return name || `Ficha provisoria · ${patient.temporary_identifier}`
 }
 
+function patientAge(patient: Patient): string | null {
+  if (!patient.date_of_birth) return null
+  const today = new Date()
+  const birthDate = new Date(`${patient.date_of_birth}T00:00:00`)
+  let age = today.getFullYear() - birthDate.getFullYear()
+  if (
+    today.getMonth() < birthDate.getMonth()
+    || (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1
+  }
+  return `${age} años${patient.date_of_birth_is_estimated ? ' · edad estimada' : ''}`
+}
+
 function formatRut(rut: string | null): string {
   if (!rut) return 'Sin RUT confirmado'
   const [body, digit] = rut.split('-')
   return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${digit}`
+}
+
+function comparableRut(rut: string | null): string {
+  return (rut ?? '').replace(/[.\s-]/g, '').toUpperCase()
+}
+
+function admissionLocation(admission: Admission | null): string {
+  if (!admission) return 'Sin hospitalización activa'
+  if (!admission.current_location) return `${admission.admission_identifier} · sin cama asignada`
+  return [
+    admission.admission_identifier,
+    admission.current_location.service_name,
+    admission.current_location.room_name,
+    admission.current_location.care_unit_label || admission.current_location.care_unit_code,
+  ].filter(Boolean).join(' · ')
 }
 
 function formatDateTime(value: string): string {
@@ -87,10 +124,12 @@ function PatientCreateDialog({
   csrfToken,
   onClose,
   onCreated,
+  onSelectExisting,
 }: {
   csrfToken: string
   onClose: () => void
   onCreated: (patient: Patient) => void
+  onSelectExisting: (patientId: string) => void
 }) {
   const [kind, setKind] = useState<'identified' | 'unidentified'>('identified')
   const [rut, setRut] = useState('')
@@ -99,22 +138,68 @@ function PatientCreateDialog({
   const [secondSurname, setSecondSurname] = useState('')
   const [description, setDescription] = useState('')
   const [hospitalIdentifier, setHospitalIdentifier] = useState('')
+  const [ageYears, setAgeYears] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [potentialMatches, setPotentialMatches] = useState<Patient[]>([])
+  const [matchesChecked, setMatchesChecked] = useState(false)
+  const [confirmedDifferentPatient, setConfirmedDifferentPatient] = useState(false)
+
+  function invalidateMatchReview() {
+    setPotentialMatches([])
+    setMatchesChecked(false)
+    setConfirmedDifferentPatient(false)
+  }
+
+  const normalizedHospitalIdentifier = hospitalIdentifier.trim().toUpperCase()
+  const exactMatches = potentialMatches.filter((match) => (
+    (rut.trim() !== '' && comparableRut(match.rut) === comparableRut(rut))
+    || (
+      normalizedHospitalIdentifier !== ''
+      && (match.hospital_identifier ?? '').trim().toUpperCase() === normalizedHospitalIdentifier
+    )
+  ))
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setSaving(true)
     setError(null)
     try {
+      if (!matchesChecked) {
+        const params = new URLSearchParams()
+        if (kind === 'identified' && rut.trim()) params.set('rut', rut)
+        if (normalizedHospitalIdentifier) {
+          params.set('hospital_identifier', normalizedHospitalIdentifier)
+        }
+        if (givenNames.trim()) params.set('given_names', givenNames)
+        if (firstSurname.trim()) params.set('first_surname', firstSurname)
+        const matches = await apiRequest<PotentialPatientMatches>(
+          `/patients/potential-matches?${params}`,
+        )
+        const items = matches.items ?? []
+        setPotentialMatches(items)
+        setMatchesChecked(true)
+        if (items.length > 0) return
+      } else if (exactMatches.length > 0) {
+        setError('El RUT o número de ficha ya pertenece a una ficha existente. Ábrala en vez de crear un duplicado.')
+        return
+      } else if (potentialMatches.length > 0 && !confirmedDifferentPatient) {
+        setError('Revise las posibles coincidencias antes de confirmar una ficha diferente.')
+        return
+      }
+
       const patient = kind === 'unidentified'
         ? await apiRequest<Patient>(
           '/patients/unidentified',
           {
             method: 'POST',
             body: JSON.stringify({
+              given_names: givenNames || null,
+              first_surname: firstSurname || null,
+              second_surname: secondSurname || null,
+              age_years: ageYears === '' ? null : Number(ageYears),
               provisional_description: description || null,
-              hospital_identifier: hospitalIdentifier || null,
+              hospital_identifier: normalizedHospitalIdentifier || null,
             }),
           },
           csrfToken,
@@ -128,7 +213,7 @@ function PatientCreateDialog({
               given_names: givenNames,
               first_surname: firstSurname,
               second_surname: secondSurname || null,
-              hospital_identifier: hospitalIdentifier || null,
+              hospital_identifier: normalizedHospitalIdentifier || null,
             }),
           },
           csrfToken,
@@ -154,7 +239,10 @@ function PatientCreateDialog({
                 labelId="patient-kind-label"
                 label="Tipo de ficha"
                 value={kind}
-                onChange={(event) => setKind(event.target.value as typeof kind)}
+                onChange={(event) => {
+                  setKind(event.target.value as typeof kind)
+                  invalidateMatchReview()
+                }}
               >
                 <MenuItem value="identified">Paciente identificado</MenuItem>
                 <MenuItem value="unidentified">Paciente NN</MenuItem>
@@ -162,33 +250,107 @@ function PatientCreateDialog({
             </FormControl>
             {kind === 'identified' ? (
               <>
-                <TextField required label="RUT" value={rut} onChange={(event) => setRut(event.target.value)} />
-                <TextField required label="Nombres" value={givenNames} onChange={(event) => setGivenNames(event.target.value)} />
-                <TextField required label="Primer apellido" value={firstSurname} onChange={(event) => setFirstSurname(event.target.value)} />
+                <TextField required label="RUT" value={rut} onChange={(event) => { setRut(event.target.value); invalidateMatchReview() }} />
+                <TextField required label="Nombres" value={givenNames} onChange={(event) => { setGivenNames(event.target.value); invalidateMatchReview() }} />
+                <TextField required label="Primer apellido" value={firstSurname} onChange={(event) => { setFirstSurname(event.target.value); invalidateMatchReview() }} />
                 <TextField label="Segundo apellido" value={secondSurname} onChange={(event) => setSecondSurname(event.target.value)} />
               </>
             ) : (
-              <TextField
-                autoFocus
-                label="Descripción provisoria"
-                value={description}
-                multiline
-                minRows={3}
-                onChange={(event) => setDescription(event.target.value)}
-                helperText="El sistema asignará un identificador NN único."
-              />
+              <>
+                <TextField
+                  autoFocus
+                  label="Nombres informados (opcional)"
+                  value={givenNames}
+                  onChange={(event) => { setGivenNames(event.target.value); invalidateMatchReview() }}
+                  helperText="Se conservarán como datos no confirmados mientras el paciente siga siendo NN."
+                />
+                <TextField
+                  label="Primer apellido informado (opcional)"
+                  value={firstSurname}
+                  onChange={(event) => { setFirstSurname(event.target.value); invalidateMatchReview() }}
+                />
+                <TextField
+                  label="Segundo apellido informado (opcional)"
+                  value={secondSurname}
+                  onChange={(event) => setSecondSurname(event.target.value)}
+                />
+                <TextField
+                  label="Edad estimada (opcional)"
+                  type="number"
+                  value={ageYears}
+                  inputProps={{ min: 0, max: 130, step: 1 }}
+                  onChange={(event) => setAgeYears(event.target.value)}
+                  helperText="Se almacenará como fecha de nacimiento estimada; no como una edad fija."
+                />
+                <TextField
+                  label="Descripción provisoria"
+                  value={description}
+                  multiline
+                  minRows={3}
+                  onChange={(event) => setDescription(event.target.value)}
+                  helperText="El sistema asignará un identificador NN único."
+                />
+              </>
             )}
             <TextField
-              label="Identificador hospitalario"
+              label="Número de ficha (opcional)"
               value={hospitalIdentifier}
-              onChange={(event) => setHospitalIdentifier(event.target.value)}
+              onChange={(event) => { setHospitalIdentifier(event.target.value); invalidateMatchReview() }}
+              helperText="Debe ser único dentro del hospital y se guardará en mayúsculas."
             />
+            {matchesChecked && potentialMatches.length > 0 && (
+              <Stack spacing={1.25}>
+                <Alert severity={exactMatches.length > 0 ? 'error' : 'warning'}>
+                  {exactMatches.length > 0
+                    ? 'Ya existe una ficha con el mismo RUT o número de ficha. No se puede crear otra.'
+                    : 'Encontramos fichas con datos similares. Revíselas para evitar duplicados.'}
+                </Alert>
+                {potentialMatches.map((match) => (
+                  <Card key={match.id} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={0.5}>
+                        <Typography fontWeight={750}>{patientName(match)}</Typography>
+                        <Typography variant="body2">{formatRut(match.rut)}</Typography>
+                        <Typography variant="body2">N.º ficha: {match.hospital_identifier || 'No registrada'}</Typography>
+                        <Typography variant="body2">{admissionLocation(match.active_admission)}</Typography>
+                        <Button
+                          size="small"
+                          sx={{ alignSelf: 'flex-start' }}
+                          onClick={() => onSelectExisting(match.id)}
+                        >
+                          Abrir ficha existente
+                        </Button>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+                {exactMatches.length === 0 && (
+                  <FormControlLabel
+                    control={(
+                      <Checkbox
+                        checked={confirmedDifferentPatient}
+                        onChange={(event) => setConfirmedDifferentPatient(event.target.checked)}
+                      />
+                    )}
+                    label="Revisé las coincidencias y confirmo que corresponde crear una ficha diferente."
+                  />
+                )}
+              </Stack>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button variant="contained" type="submit" disabled={saving}>
-            {saving ? 'Guardando…' : kind === 'identified' ? 'Crear paciente' : 'Crear paciente NN'}
+          <Button
+            variant="contained"
+            type="submit"
+            disabled={saving || exactMatches.length > 0}
+          >
+            {saving
+              ? 'Revisando…'
+              : potentialMatches.length > 0
+                ? 'Crear ficha diferente'
+                : kind === 'identified' ? 'Crear paciente' : 'Crear paciente NN'}
           </Button>
         </DialogActions>
       </Box>
@@ -199,19 +361,24 @@ function PatientCreateDialog({
 function IdentityDialog({
   csrfToken,
   patient,
+  canResolveActiveConflicts,
   onClose,
   onUpdated,
 }: {
   csrfToken: string
   patient: Patient
+  canResolveActiveConflicts: boolean
   onClose: () => void
   onUpdated: (patient: Patient) => void
 }) {
   const [rut, setRut] = useState('')
-  const [givenNames, setGivenNames] = useState('')
-  const [firstSurname, setFirstSurname] = useState('')
+  const [givenNames, setGivenNames] = useState(patient.given_names ?? '')
+  const [firstSurname, setFirstSurname] = useState(patient.first_surname ?? '')
   const [reason, setReason] = useState('')
   const [canonical, setCanonical] = useState<Patient | null>(null)
+  const [confirmedMatch, setConfirmedMatch] = useState(false)
+  const [admissionToCloseId, setAdmissionToCloseId] = useState('')
+  const [loadingCandidate, setLoadingCandidate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -233,11 +400,23 @@ function IdentityDialog({
     } catch (caught) {
       setError(requestError(caught))
       if (caught instanceof ApiError && caught.status === 409) {
+        setLoadingCandidate(true)
         try {
           const matches = await apiRequest<PatientList>(`/patients?q=${encodeURIComponent(rut)}`)
-          setCanonical(matches.items.find((item) => item.id !== patient.id && item.rut) ?? null)
+          const match = matches.items.find((item) => (
+            item.id !== patient.id
+            && comparableRut(item.rut) === comparableRut(rut)
+          ))
+          if (match) {
+            const detail = await apiRequest<Patient>(`/patients/${match.id}`)
+            setCanonical(detail)
+          } else {
+            setError('El RUT está en uso, pero no fue posible localizar una ficha identificada coincidente.')
+          }
         } catch {
-          // The original conflict remains visible.
+          setError('El RUT está en uso, pero no fue posible cargar la ficha existente para compararla.')
+        } finally {
+          setLoadingCandidate(false)
         }
       }
     } finally {
@@ -246,15 +425,27 @@ function IdentityDialog({
   }
 
   async function reconcile() {
-    if (!canonical || !window.confirm('¿Confirma la conciliación de ambas fichas? Esta acción conserva todo el historial.')) return
+    if (!canonical || !confirmedMatch || reason.trim().length < 10) return
+    const resolvingActiveConflict = Boolean(
+      patient.active_admission && canonical.active_admission,
+    )
+    if (resolvingActiveConflict && (!canResolveActiveConflicts || !admissionToCloseId)) return
     setSaving(true)
     setError(null)
     try {
       const updated = await apiRequest<Patient>(
-        `/patients/${patient.id}/reconcile`,
+        resolvingActiveConflict
+          ? `/patients/${patient.id}/reconcile-active-conflict`
+          : `/patients/${patient.id}/reconcile`,
         {
           method: 'POST',
-          body: JSON.stringify({ rut: canonical.rut, reason }),
+          body: JSON.stringify({
+            rut: canonical.rut,
+            reason,
+            ...(resolvingActiveConflict
+              ? { admission_to_close_id: admissionToCloseId }
+              : {}),
+          }),
         },
         csrfToken,
       )
@@ -266,9 +457,27 @@ function IdentityDialog({
     }
   }
 
+  const bothHaveActiveAdmissions = Boolean(
+    canonical?.active_admission && patient.active_admission,
+  )
+  const reportedName = [givenNames, firstSurname, patient.second_surname]
+    .filter(Boolean)
+    .join(' ') || patientName(patient)
+  const canonicalAdmissions = canonical?.admissions?.length ?? 0
+
   return (
     <Dialog open fullWidth maxWidth="md" onClose={saving ? undefined : onClose}>
-      <Box component="form" onSubmit={(event) => void identify(event)}>
+      <Box
+        component="form"
+        onSubmit={(event) => {
+          if (canonical) {
+            event.preventDefault()
+            void reconcile()
+          } else {
+            void identify(event)
+          }
+        }}
+      >
         <DialogTitle>Identificar paciente NN</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
@@ -276,34 +485,102 @@ function IdentityDialog({
             <Alert severity="info">
               La ficha conservará el identificador {patient.temporary_identifier}, sus hospitalizaciones y ubicaciones.
             </Alert>
-            <TextField required label="RUT confirmado" value={rut} onChange={(event) => setRut(event.target.value)} />
-            <TextField required label="Nombres" value={givenNames} onChange={(event) => setGivenNames(event.target.value)} />
-            <TextField required label="Primer apellido" value={firstSurname} onChange={(event) => setFirstSurname(event.target.value)} />
+            <TextField
+              required
+              label="RUT confirmado"
+              value={rut}
+              onChange={(event) => {
+                setRut(event.target.value)
+                setCanonical(null)
+                setConfirmedMatch(false)
+                setAdmissionToCloseId('')
+                setReason('')
+                setError(null)
+              }}
+            />
+            <TextField required disabled={Boolean(canonical)} label="Nombres" value={givenNames} onChange={(event) => setGivenNames(event.target.value)} />
+            <TextField required disabled={Boolean(canonical)} label="Primer apellido" value={firstSurname} onChange={(event) => setFirstSurname(event.target.value)} />
+            {loadingCandidate && (
+              <Stack direction="row" spacing={1} alignItems="center" role="status">
+                <CircularProgress size={18} />
+                <Typography variant="body2">Buscando la ficha asociada al RUT…</Typography>
+              </Stack>
+            )}
             {canonical && (
               <>
                 <Divider />
                 <Typography variant="h6">Conciliación requerida</Typography>
+                <Alert severity="warning">
+                  El RUT ya pertenece a una ficha anterior. Verifique que ambas fichas correspondan a la misma persona antes de continuar.
+                </Alert>
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Card variant="outlined">
                       <CardContent>
-                        <Typography variant="overline">Ficha provisoria</Typography>
-                        <Typography fontWeight={750}>{patientName(patient)}</Typography>
-                        <Typography variant="body2">{patient.active_admission ? 'Hospitalización activa' : 'Sin hospitalización activa'}</Typography>
+                        <Typography component="h3" variant="overline">Ficha NN actual</Typography>
+                        <Typography variant="h6" fontWeight={750}>{reportedName}</Typography>
+                        <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+                          <Typography variant="body2"><strong>Identificador:</strong> {patient.temporary_identifier}</Typography>
+                          <Typography variant="body2"><strong>RUT ingresado:</strong> {rut}</Typography>
+                          <Typography variant="body2"><strong>N.º ficha:</strong> {patient.hospital_identifier || 'No registrado'}</Typography>
+                          <Typography variant="body2"><strong>Edad:</strong> {patientAge(patient) || 'No registrada'}</Typography>
+                          <Typography variant="body2"><strong>Ingreso actual:</strong> {admissionLocation(patient.active_admission)}</Typography>
+                        </Stack>
                       </CardContent>
                     </Card>
                   </Grid>
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Card variant="outlined">
                       <CardContent>
-                        <Typography variant="overline">Ficha canónica</Typography>
-                        <Typography fontWeight={750}>{patientName(canonical)}</Typography>
-                        <Typography variant="body2">{formatRut(canonical.rut)}</Typography>
-                        <Typography variant="body2">{canonical.active_admission ? 'Hospitalización activa' : 'Sin hospitalización activa'}</Typography>
+                        <Typography component="h3" variant="overline">Ficha histórica principal</Typography>
+                        <Typography variant="h6" fontWeight={750}>{patientName(canonical)}</Typography>
+                        <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+                          <Typography variant="body2"><strong>RUT:</strong> {formatRut(canonical.rut)}</Typography>
+                          <Typography variant="body2"><strong>N.º ficha:</strong> {canonical.hospital_identifier || 'No registrado'}</Typography>
+                          <Typography variant="body2"><strong>Edad:</strong> {patientAge(canonical) || 'No registrada'}</Typography>
+                          <Typography variant="body2"><strong>Ingreso actual:</strong> {admissionLocation(canonical.active_admission)}</Typography>
+                          <Typography variant="body2"><strong>Historial:</strong> {canonicalAdmissions} {canonicalAdmissions === 1 ? 'hospitalización registrada' : 'hospitalizaciones registradas'}</Typography>
+                        </Stack>
                       </CardContent>
                     </Card>
                   </Grid>
                 </Grid>
+                {bothHaveActiveAdmissions ? (
+                  canResolveActiveConflicts ? (
+                    <Stack spacing={1.5}>
+                      <Alert severity="warning">
+                        Ambas fichas tienen hospitalizaciones activas. Como jefatura, debe indicar cuál ingreso duplicado cerrar administrativamente. Esto no se registrará como alta médica.
+                      </Alert>
+                      <FormControl required fullWidth>
+                        <InputLabel id="admission-to-close-label">Ingreso duplicado que se cerrará</InputLabel>
+                        <Select
+                          labelId="admission-to-close-label"
+                          label="Ingreso duplicado que se cerrará"
+                          value={admissionToCloseId}
+                          onChange={(event) => setAdmissionToCloseId(event.target.value)}
+                        >
+                          <MenuItem value={patient.active_admission!.id}>
+                            {patient.active_admission!.admission_identifier} · ficha NN actual
+                          </MenuItem>
+                          <MenuItem value={canonical.active_admission!.id}>
+                            {canonical.active_admission!.admission_identifier} · ficha histórica principal
+                          </MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Alert severity="info">
+                        El otro ingreso permanecerá activo. La cama del ingreso cerrado quedará libre y ambos historiales se conservarán en la ficha principal.
+                      </Alert>
+                    </Stack>
+                  ) : (
+                    <Alert severity="error">
+                      Ambas fichas tienen hospitalizaciones activas. La conciliación está bloqueada hasta que jefatura revise cuál ingreso duplicado debe cerrarse administrativamente.
+                    </Alert>
+                  )
+                ) : (
+                  <Alert severity="info">
+                    La ficha histórica seguirá siendo la principal. Las hospitalizaciones y la ubicación actual de la ficha NN se trasladarán sin borrar sus historiales; la ficha NN quedará inactiva y vinculada a la principal.
+                  </Alert>
+                )}
                 <TextField
                   required
                   label="Motivo de conciliación"
@@ -312,6 +589,15 @@ function IdentityDialog({
                   inputProps={{ minLength: 10 }}
                   multiline
                   minRows={2}
+                />
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      checked={confirmedMatch}
+                      onChange={(event) => setConfirmedMatch(event.target.checked)}
+                    />
+                  )}
+                  label="Confirmo que ambas fichas corresponden a la misma persona."
                 />
               </>
             )}
@@ -323,10 +609,19 @@ function IdentityDialog({
             <Button
               variant="contained"
               color="warning"
-              disabled={saving || reason.trim().length < 10}
-              onClick={() => void reconcile()}
+              type="submit"
+              disabled={
+                saving
+                || !confirmedMatch
+                || reason.trim().length < 10
+                || (bothHaveActiveAdmissions && (
+                  !canResolveActiveConflicts || !admissionToCloseId
+                ))
+              }
             >
-              Conciliar fichas
+              {bothHaveActiveAdmissions && canResolveActiveConflicts
+                ? 'Resolver duplicidad y conciliar'
+                : 'Conciliar y conservar historial'}
             </Button>
           ) : (
             <Button variant="contained" type="submit" disabled={saving}>Confirmar identidad</Button>
@@ -430,7 +725,11 @@ function LocationDialog({
   )
 }
 
-export function PatientsDashboard({ canMutate, csrfToken }: PatientsDashboardProps) {
+export function PatientsDashboard({
+  canMutate,
+  canResolveActiveConflicts = false,
+  csrfToken,
+}: PatientsDashboardProps) {
   const [patients, setPatients] = useState<PatientList | null>(null)
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
@@ -619,7 +918,7 @@ export function PatientsDashboard({ canMutate, csrfToken }: PatientsDashboardPro
                           <Typography fontWeight={800}>{patientName(patient)}</Typography>
                           <Typography variant="body2" color="text.secondary">
                             {formatRut(patient.rut)}
-                            {patient.hospital_identifier ? ` · ${patient.hospital_identifier}` : ''}
+                            {patient.hospital_identifier ? ` · N.º ficha: ${patient.hospital_identifier}` : ''}
                           </Typography>
                         </Box>
                         <Chip
@@ -662,6 +961,14 @@ export function PatientsDashboard({ canMutate, csrfToken }: PatientsDashboardPro
                         <Typography variant="overline">Ficha del paciente</Typography>
                         <Typography variant="h5" fontWeight={800}>{patientName(selected)}</Typography>
                         <Typography color="text.secondary">{formatRut(selected.rut)}</Typography>
+                        {selected.hospital_identifier && (
+                          <Typography color="text.secondary">
+                            N.º ficha: {selected.hospital_identifier}
+                          </Typography>
+                        )}
+                        {patientAge(selected) && (
+                          <Typography color="text.secondary">Edad: {patientAge(selected)}</Typography>
+                        )}
                       </Box>
                       <Chip
                         label={IDENTITY_LABELS[selected.identity_status]}
@@ -743,6 +1050,10 @@ export function PatientsDashboard({ canMutate, csrfToken }: PatientsDashboardPro
         <PatientCreateDialog
           csrfToken={csrfToken}
           onClose={() => setCreateOpen(false)}
+          onSelectExisting={(patientId) => {
+            setCreateOpen(false)
+            void openPatient(patientId)
+          }}
           onCreated={(patient) => {
             setCreateOpen(false)
             setSelected(patient)
@@ -754,6 +1065,7 @@ export function PatientsDashboard({ canMutate, csrfToken }: PatientsDashboardPro
         <IdentityDialog
           csrfToken={csrfToken}
           patient={selected}
+          canResolveActiveConflicts={canResolveActiveConflicts}
           onClose={() => setIdentityOpen(false)}
           onUpdated={(patient) => {
             setIdentityOpen(false)

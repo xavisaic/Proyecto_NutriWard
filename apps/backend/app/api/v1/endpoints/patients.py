@@ -10,6 +10,7 @@ from app.api.dependencies import (
     require_roles_with_csrf,
 )
 from app.schemas.patient import (
+    ActiveAdmissionReconciliation,
     AdmissionCreate,
     AdmissionListResponse,
     AdmissionRead,
@@ -22,6 +23,7 @@ from app.schemas.patient import (
     PatientIdentityUpdate,
     PatientListResponse,
     PatientReconcile,
+    PotentialPatientMatchesResponse,
     UnidentifiedPatientCreate,
 )
 from app.services.patient_service import (
@@ -34,10 +36,12 @@ from app.services.patient_service import (
     get_location_history,
     get_patient_detail,
     identify_patient,
+    find_potential_patient_matches,
     list_active_admissions,
     list_patient_admissions,
     list_patients,
     reconcile_patient,
+    resolve_active_admission_reconciliation,
     update_admission_status,
 )
 
@@ -48,6 +52,10 @@ PatientReader = Annotated[CurrentSession, Depends(require_roles(*PATIENT_ROLES))
 PatientEditor = Annotated[
     CurrentSession,
     Depends(require_roles_with_csrf(*PATIENT_MUTATION_ROLES)),
+]
+ReconciliationManager = Annotated[
+    CurrentSession,
+    Depends(require_roles_with_csrf("jefatura")),
 ]
 
 
@@ -91,6 +99,24 @@ def read_patients(
     )
 
 
+@router.get("/patients/potential-matches", response_model=PotentialPatientMatchesResponse)
+def read_potential_patient_matches(
+    _: PatientReader,
+    session: DatabaseSession,
+    rut: str | None = Query(default=None, max_length=20),
+    hospital_identifier: str | None = Query(default=None, max_length=80),
+    given_names: str | None = Query(default=None, max_length=160),
+    first_surname: str | None = Query(default=None, max_length=100),
+) -> PotentialPatientMatchesResponse:
+    return find_potential_patient_matches(
+        session,
+        rut=rut,
+        hospital_identifier=hospital_identifier,
+        given_names=given_names,
+        first_surname=first_surname,
+    )
+
+
 @router.get("/patients/{patient_id}", response_model=PatientDetail)
 def read_patient(
     patient_id: uuid.UUID,
@@ -118,6 +144,24 @@ def reconcile_patient_record(
     session: DatabaseSession,
 ) -> PatientDetail:
     return reconcile_patient(session, patient_id, payload, current.user.id)
+
+
+@router.post(
+    "/patients/{patient_id}/reconcile-active-conflict",
+    response_model=PatientDetail,
+)
+def resolve_patient_active_admission_conflict(
+    patient_id: uuid.UUID,
+    payload: ActiveAdmissionReconciliation,
+    current: ReconciliationManager,
+    session: DatabaseSession,
+) -> PatientDetail:
+    return resolve_active_admission_reconciliation(
+        session,
+        patient_id,
+        payload,
+        current.user.id,
+    )
 
 
 @router.get("/patients/{patient_id}/admissions", response_model=AdmissionListResponse)

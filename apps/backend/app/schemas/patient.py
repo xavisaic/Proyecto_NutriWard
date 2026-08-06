@@ -20,6 +20,11 @@ def normalize_required_text(value: str) -> str:
     return normalized
 
 
+def normalize_hospital_identifier(value: str | None) -> str | None:
+    normalized = normalize_optional_text(value)
+    return normalized.upper() if normalized is not None else None
+
+
 def normalize_rut(value: str) -> str:
     normalized = re.sub(r"[.\s-]", "", value).upper()
     if not re.fullmatch(r"\d{7,8}[\dK]", normalized):
@@ -74,10 +79,12 @@ class PatientCreate(BaseModel):
         "given_names",
         "first_surname",
         "second_surname",
-        "hospital_identifier",
         "phone",
         "provisional_description",
     )(normalize_optional_text)
+    _normalize_hospital_identifier = field_validator("hospital_identifier")(
+        normalize_hospital_identifier
+    )
 
     @field_validator("rut")
     @classmethod
@@ -99,6 +106,10 @@ class PatientCreate(BaseModel):
 
 
 class UnidentifiedPatientCreate(BaseModel):
+    given_names: str | None = Field(default=None, max_length=160)
+    first_surname: str | None = Field(default=None, max_length=100)
+    second_surname: str | None = Field(default=None, max_length=100)
+    age_years: int | None = Field(default=None, ge=0, le=130)
     provisional_description: str | None = Field(default=None, max_length=1000)
     date_of_birth: date | None = None
     date_of_birth_is_estimated: bool = True
@@ -106,9 +117,20 @@ class UnidentifiedPatientCreate(BaseModel):
     hospital_identifier: str | None = Field(default=None, max_length=80)
 
     _normalize_text = field_validator(
+        "given_names",
+        "first_surname",
+        "second_surname",
         "provisional_description",
-        "hospital_identifier",
     )(normalize_optional_text)
+    _normalize_hospital_identifier = field_validator("hospital_identifier")(
+        normalize_hospital_identifier
+    )
+
+    @model_validator(mode="after")
+    def reject_ambiguous_age(self):
+        if self.age_years is not None and self.date_of_birth is not None:
+            raise ValueError("Indique la edad o la fecha de nacimiento estimada, no ambas.")
+        return self
 
 
 class PatientIdentityUpdate(BaseModel):
@@ -129,9 +151,11 @@ class PatientIdentityUpdate(BaseModel):
     )(normalize_required_text)
     _normalize_text = field_validator(
         "second_surname",
-        "hospital_identifier",
         "phone",
     )(normalize_optional_text)
+    _normalize_hospital_identifier = field_validator("hospital_identifier")(
+        normalize_hospital_identifier
+    )
 
 
 class PatientReconcile(BaseModel):
@@ -140,6 +164,10 @@ class PatientReconcile(BaseModel):
 
     _normalize_rut = field_validator("rut")(normalize_rut)
     _normalize_reason = field_validator("reason")(normalize_required_text)
+
+
+class ActiveAdmissionReconciliation(PatientReconcile):
+    admission_to_close_id: uuid.UUID
 
 
 class LocationAssignment(BaseModel):
@@ -257,6 +285,11 @@ class PatientListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class PotentialPatientMatchesResponse(BaseModel):
+    items: list[PatientSummary]
+    total: int
 
 
 class AdmissionListResponse(BaseModel):

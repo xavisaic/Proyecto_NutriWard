@@ -64,6 +64,26 @@ def test_administration_read_permissions(client) -> None:
         client.cookies.clear()
 
 
+def test_nutritionist_can_read_only_own_active_service_assignments(client) -> None:
+    assert client.get("/api/v1/nutritionist-service-assignments/me").status_code == 401
+
+    login(client, "nutricionista")
+    response = client.get("/api/v1/nutritionist-service-assignments/me")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert {item["service_code"] for item in body["items"]} == {"MED", "UCI"}
+    assert all(item["is_active"] for item in body["items"])
+    assert all(
+        item["nutritionist_email"] == "nutricionista@nutriward.local"
+        for item in body["items"]
+    )
+
+    client.cookies.clear()
+    login(client, "alimentacion")
+    assert client.get("/api/v1/nutritionist-service-assignments/me").status_code == 403
+
+
 def test_only_administrator_can_mutate_and_csrf_is_required(
     client,
     db_session,

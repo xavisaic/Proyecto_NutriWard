@@ -30,10 +30,30 @@ AssignmentsReader = Annotated[
     CurrentSession,
     Depends(require_roles("jefatura", "administrador")),
 ]
+CurrentNutritionist = Annotated[
+    CurrentSession,
+    Depends(require_roles("nutricionista")),
+]
 AssignmentsAdministrator = Annotated[
     CurrentSession,
     Depends(require_roles_with_csrf("administrador")),
 ]
+
+
+@router.get(
+    "/me",
+    response_model=NutritionistServiceAssignmentListResponse,
+)
+def read_current_nutritionist_assignments(
+    current: CurrentNutritionist,
+    session: DatabaseSession,
+) -> NutritionistServiceAssignmentListResponse:
+    """Return only active service assignments belonging to the current user."""
+    return list_assignments(
+        session,
+        nutritionist_user_id=current.user.id,
+        include_inactive=False,
+    )
 
 
 @router.get("", response_model=NutritionistServiceAssignmentListResponse)

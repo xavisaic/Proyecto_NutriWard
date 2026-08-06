@@ -18,6 +18,7 @@ from app.models.patient import Patient
 from app.models.patient_location_history import PatientLocationHistory
 from app.models.room import Room
 from app.schemas.patient import (
+    ActiveAdmissionReconciliation,
     AdmissionCreate,
     AdmissionListResponse,
     AdmissionRead,
@@ -32,7 +33,9 @@ from app.schemas.patient import (
     PatientListResponse,
     PatientReconcile,
     PatientSummary,
+    PotentialPatientMatchesResponse,
     UnidentifiedPatientCreate,
+    normalize_hospital_identifier,
     normalize_rut,
 )
 from app.services.audit_service import record_audit
@@ -173,6 +176,26 @@ def _ensure_rut_available(
     return session.exec(statement).first()
 
 
+def _ensure_hospital_identifier_available(
+    session: Session,
+    hospital_identifier: str,
+    *,
+    excluding_patient_id: uuid.UUID | None = None,
+) -> Patient | None:
+    statement = select(Patient).where(Patient.hospital_identifier == hospital_identifier)
+    if excluding_patient_id is not None:
+        statement = statement.where(Patient.id != excluding_patient_id)
+    return session.exec(statement).first()
+
+
+def _estimated_date_of_birth(age_years: int, reference_date: date) -> date:
+    try:
+        return reference_date.replace(year=reference_date.year - age_years)
+    except ValueError:
+        # A creation date on February 29 maps to February 28 in a non-leap birth year.
+        return reference_date.replace(year=reference_date.year - age_years, day=28)
+
+
 def _commit_or_conflict(session: Session, detail: str) -> None:
     try:
         session.commit()
@@ -188,6 +211,10 @@ def create_patient(
 ) -> PatientDetail:
     if payload.rut and _ensure_rut_available(session, payload.rut):
         raise _conflict("Ya existe un paciente con ese RUT.")
+    if payload.hospital_identifier and _ensure_hospital_identifier_available(
+        session, payload.hospital_identifier
+    ):
+        raise _conflict("El número de ficha ya pertenece a otro paciente.")
     now = utc_now()
     data = payload.model_dump(mode="python")
     patient = Patient(
@@ -212,7 +239,10 @@ def create_patient(
         entity_id=patient.id,
         after_state=_snapshot(patient, PATIENT_AUDIT_FIELDS),
     )
-    _commit_or_conflict(session, "Ya existe un paciente con ese RUT o identificador temporal.")
+    _commit_or_conflict(
+        session,
+        "Ya existe un paciente con ese RUT, número de ficha o identificador temporal.",
+    )
     return get_patient_detail(session, patient.id)
 
 
@@ -221,12 +251,23 @@ def create_unidentified_patient(
     payload: UnidentifiedPatientCreate,
     actor_user_id: uuid.UUID,
 ) -> PatientDetail:
+    if payload.hospital_identifier and _ensure_hospital_identifier_available(
+        session, payload.hospital_identifier
+    ):
+        raise _conflict("El número de ficha ya pertenece a otro paciente.")
+    data = payload.model_dump(mode="python", exclude={"age_years"})
+    if payload.age_years is not None:
+        data["date_of_birth"] = _estimated_date_of_birth(
+            payload.age_years,
+            utc_now().date(),
+        )
+        data["date_of_birth_is_estimated"] = True
     patient = Patient(
         identity_status=IdentityStatus.UNIDENTIFIED.value,
         temporary_identifier=_temporary_identifier(session),
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
-        **payload.model_dump(mode="python"),
+        **data,
     )
     session.add(patient)
     session.flush()
@@ -238,7 +279,10 @@ def create_unidentified_patient(
         entity_id=patient.id,
         after_state=_snapshot(patient, PATIENT_AUDIT_FIELDS),
     )
-    _commit_or_conflict(session, "No fue posible reservar el identificador temporal.")
+    _commit_or_conflict(
+        session,
+        "No fue posible reservar el identificador temporal o el número de ficha.",
+    )
     return get_patient_detail(session, patient.id)
 
 
@@ -403,6 +447,80 @@ def list_patients(
     )
 
 
+def find_potential_patient_matches(
+    session: Session,
+    *,
+    rut: str | None,
+    hospital_identifier: str | None,
+    given_names: str | None,
+    first_surname: str | None,
+) -> PotentialPatientMatchesResponse:
+    match_filters = []
+    if rut and rut.strip():
+        try:
+            match_filters.append(Patient.rut == normalize_rut(rut))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    normalized_hospital_identifier = normalize_hospital_identifier(hospital_identifier)
+    if normalized_hospital_identifier:
+        match_filters.append(
+            Patient.hospital_identifier == normalized_hospital_identifier
+        )
+    normalized_names = " ".join((given_names or "").split())
+    if normalized_names:
+        match_filters.append(
+            func.lower(func.coalesce(Patient.given_names, "")).like(
+                f"%{normalized_names.lower()}%"
+            )
+        )
+    normalized_surname = " ".join((first_surname or "").split())
+    if normalized_surname:
+        lowered_surname = f"%{normalized_surname.lower()}%"
+        match_filters.append(
+            or_(
+                func.lower(func.coalesce(Patient.first_surname, "")).like(
+                    lowered_surname
+                ),
+                func.lower(func.coalesce(Patient.second_surname, "")).like(
+                    lowered_surname
+                ),
+            )
+        )
+    if not match_filters:
+        return PotentialPatientMatchesResponse(items=[], total=0)
+
+    patients = list(
+        session.exec(
+            select(Patient)
+            .where(
+                Patient.is_active.is_(True),
+                Patient.merged_into_patient_id.is_(None),
+                or_(*match_filters),
+            )
+            .order_by(Patient.created_at.desc(), Patient.id)
+            .limit(10)
+        ).all()
+    )
+    patient_ids = [patient.id for patient in patients]
+    active_admissions = list(
+        session.exec(
+            select(Admission)
+            .where(
+                Admission.patient_id.in_(patient_ids),
+                Admission.status == "active",
+            )
+            .order_by(Admission.admitted_at.desc(), Admission.id)
+        ).all()
+    ) if patient_ids else []
+    reads = _admissions_to_reads(session, active_admissions, include_history=False)
+    active_by_patient = {admission.patient_id: admission for admission in reads}
+    items = [
+        _patient_summary(patient, active_by_patient.get(patient.id))
+        for patient in patients
+    ]
+    return PotentialPatientMatchesResponse(items=items, total=len(items))
+
+
 def get_patient_detail(session: Session, patient_id: uuid.UUID) -> PatientDetail:
     patient = _get_patient(session, patient_id)
     admissions = list(
@@ -432,8 +550,14 @@ def identify_patient(
         raise _conflict(
             "El RUT ya pertenece a otro paciente; debe realizar una conciliación explícita."
         )
+    if payload.hospital_identifier and _ensure_hospital_identifier_available(
+        session,
+        payload.hospital_identifier,
+        excluding_patient_id=patient.id,
+    ):
+        raise _conflict("El número de ficha ya pertenece a otro paciente.")
     before = _snapshot(patient, PATIENT_AUDIT_FIELDS)
-    for field, value in payload.model_dump(mode="python").items():
+    for field, value in payload.model_dump(mode="python", exclude_unset=True).items():
         setattr(patient, field, value)
     patient.identity_status = IdentityStatus.IDENTIFIED.value
     patient.identified_at = utc_now()
@@ -450,7 +574,10 @@ def identify_patient(
         before_state=before,
         after_state=_snapshot(patient, PATIENT_AUDIT_FIELDS),
     )
-    _commit_or_conflict(session, "El RUT ya fue asignado por otra solicitud.")
+    _commit_or_conflict(
+        session,
+        "El RUT o número de ficha ya fue asignado por otra solicitud.",
+    )
     return get_patient_detail(session, patient.id)
 
 
@@ -469,6 +596,8 @@ def reconcile_patient(
     if canonical is None or canonical.identity_status != IdentityStatus.IDENTIFIED.value:
         raise _not_found("Paciente canónico identificado")
     canonical = _get_patient(session, canonical.id, for_update=True)
+    if not canonical.is_active or canonical.merged_into_patient_id is not None:
+        raise _conflict("La ficha identificada existente está inactiva o fusionada.")
     active_source = session.exec(
         select(Admission).where(
             Admission.patient_id == source.id,
@@ -486,6 +615,28 @@ def reconcile_patient(
             "Ambas fichas tienen hospitalizaciones activas; la conciliación no puede continuar."
         )
 
+    _merge_patient_records(
+        session,
+        source=source,
+        canonical=canonical,
+        reason=payload.reason,
+        actor_user_id=actor_user_id,
+    )
+    _commit_or_conflict(session, "La conciliación entró en conflicto con otro cambio concurrente.")
+    return get_patient_detail(session, canonical.id)
+
+
+def _merge_patient_records(
+    session: Session,
+    *,
+    source: Patient,
+    canonical: Patient,
+    reason: str,
+    actor_user_id: uuid.UUID,
+    audit_context: dict[str, Any] | None = None,
+) -> None:
+    """Move admissions and retire the duplicate patient without committing."""
+
     source_before = _snapshot(source, PATIENT_AUDIT_FIELDS)
     admissions = list(
         session.exec(
@@ -501,7 +652,7 @@ def reconcile_patient(
     source.merged_into_patient_id = canonical.id
     source.merged_at = now
     source.merged_by_user_id = actor_user_id
-    source.merge_reason = payload.reason
+    source.merge_reason = reason
     source.is_active = False
     source.updated_at = now
     source.updated_by_user_id = actor_user_id
@@ -517,9 +668,99 @@ def reconcile_patient(
             **_snapshot(source, PATIENT_AUDIT_FIELDS),
             "canonical_patient_id": str(canonical.id),
             "moved_admission_ids": [str(admission.id) for admission in admissions],
+            **(audit_context or {}),
         },
     )
-    _commit_or_conflict(session, "La conciliación entró en conflicto con otro cambio concurrente.")
+
+
+def resolve_active_admission_reconciliation(
+    session: Session,
+    patient_id: uuid.UUID,
+    payload: ActiveAdmissionReconciliation,
+    actor_user_id: uuid.UUID,
+) -> PatientDetail:
+    """Close one duplicated active admission administratively and merge atomically."""
+    source = _get_patient(session, patient_id, for_update=True)
+    if not source.is_active or source.merged_into_patient_id is not None:
+        raise _conflict("La ficha provisoria ya está inactiva o fusionada.")
+    if source.identity_status == IdentityStatus.IDENTIFIED.value:
+        raise _conflict("Sólo una ficha NN o provisoria puede conciliarse.")
+
+    canonical_match = _ensure_rut_available(
+        session,
+        payload.rut,
+        excluding_patient_id=source.id,
+    )
+    if (
+        canonical_match is None
+        or canonical_match.identity_status != IdentityStatus.IDENTIFIED.value
+    ):
+        raise _not_found("Paciente canónico identificado")
+    canonical = _get_patient(session, canonical_match.id, for_update=True)
+    if not canonical.is_active or canonical.merged_into_patient_id is not None:
+        raise _conflict("La ficha identificada existente está inactiva o fusionada.")
+
+    active_admissions = list(
+        session.exec(
+            select(Admission).where(
+                Admission.patient_id.in_([source.id, canonical.id]),
+                Admission.status == "active",
+            ).with_for_update()
+        ).all()
+    )
+    active_by_patient = {admission.patient_id: admission for admission in active_admissions}
+    active_source = active_by_patient.get(source.id)
+    active_canonical = active_by_patient.get(canonical.id)
+    if active_source is None or active_canonical is None:
+        raise _conflict(
+            "Este flujo requiere que ambas fichas mantengan una hospitalización activa."
+        )
+    admission_to_close = next(
+        (
+            admission
+            for admission in (active_source, active_canonical)
+            if admission.id == payload.admission_to_close_id
+        ),
+        None,
+    )
+    if admission_to_close is None:
+        raise _conflict(
+            "La hospitalización seleccionada no corresponde a uno de los ingresos activos."
+        )
+
+    _end_admission_without_commit(
+        session,
+        admission_to_close,
+        next_status="closed",
+        reason=f"Duplicidad administrativa: {payload.reason}",
+        actor_user_id=actor_user_id,
+        admission_audit_action="duplicate_admission_closed_for_reconciliation",
+        location_audit_action="location_closed_on_duplicate_resolution",
+    )
+    try:
+        # Persist the administrative close before moving the other active episode
+        # to the canonical patient, so the partial unique index is never violated.
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise _conflict(
+            "La hospitalización seleccionada cambió durante la resolución."
+        ) from exc
+    _merge_patient_records(
+        session,
+        source=source,
+        canonical=canonical,
+        reason=payload.reason,
+        actor_user_id=actor_user_id,
+        audit_context={
+            "resolved_active_admission_conflict": True,
+            "administratively_closed_admission_id": str(admission_to_close.id),
+        },
+    )
+    _commit_or_conflict(
+        session,
+        "La resolución entró en conflicto con otro cambio concurrente.",
+    )
     return get_patient_detail(session, canonical.id)
 
 
@@ -698,13 +939,16 @@ def get_admission_detail(session: Session, admission_id: uuid.UUID) -> Admission
     return _admissions_to_reads(session, [admission], include_history=True)[0]
 
 
-def update_admission_status(
+def _end_admission_without_commit(
     session: Session,
-    admission_id: uuid.UUID,
-    payload: AdmissionStatusUpdate,
+    admission: Admission,
+    *,
+    next_status: str,
+    reason: str,
     actor_user_id: uuid.UUID,
-) -> AdmissionRead:
-    admission = _get_admission(session, admission_id, for_update=True)
+    admission_audit_action: str = "admission_status_changed",
+    location_audit_action: str = "location_closed_on_admission_end",
+) -> None:
     if admission.status != "active":
         raise _conflict("La hospitalización ya se encuentra terminada.")
     before = _snapshot(admission, ADMISSION_AUDIT_FIELDS)
@@ -722,7 +966,7 @@ def update_admission_status(
         session.add(current_location)
         record_audit(
             session,
-            action="location_closed_on_admission_end",
+            action=location_audit_action,
             actor_user_id=actor_user_id,
             entity_type="patient_location",
             entity_id=current_location.id,
@@ -730,9 +974,9 @@ def update_admission_status(
             after_state=_snapshot(current_location, LOCATION_AUDIT_FIELDS),
             admission_id=admission.id,
         )
-    admission.status = payload.status.value
+    admission.status = next_status
     admission.ended_at = now
-    admission.end_reason = payload.reason
+    admission.end_reason = reason
     admission.updated_at = now
     admission.updated_by_user_id = actor_user_id
     session.add(admission)
@@ -740,21 +984,37 @@ def update_admission_status(
         AdmissionStatusHistory(
             admission_id=admission.id,
             from_status="active",
-            to_status=payload.status.value,
-            reason=payload.reason,
+            to_status=next_status,
+            reason=reason,
             changed_at=now,
             changed_by_user_id=actor_user_id,
         )
     )
     record_audit(
         session,
-        action="admission_status_changed",
+        action=admission_audit_action,
         actor_user_id=actor_user_id,
         entity_type="admission",
         entity_id=admission.id,
         before_state=before,
         after_state=_snapshot(admission, ADMISSION_AUDIT_FIELDS),
         admission_id=admission.id,
+    )
+
+
+def update_admission_status(
+    session: Session,
+    admission_id: uuid.UUID,
+    payload: AdmissionStatusUpdate,
+    actor_user_id: uuid.UUID,
+) -> AdmissionRead:
+    admission = _get_admission(session, admission_id, for_update=True)
+    _end_admission_without_commit(
+        session,
+        admission,
+        next_status=payload.status.value,
+        reason=payload.reason,
+        actor_user_id=actor_user_id,
     )
     session.commit()
     return get_admission_detail(session, admission.id)

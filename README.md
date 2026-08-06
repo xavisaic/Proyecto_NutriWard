@@ -1,6 +1,6 @@
 # Proyecto NutriWard
 
-Base técnica completa de Fase 5 para una plataforma web de gestión nutricional clínica.
+Base técnica completa de Fase 6 para una plataforma web de gestión nutricional clínica.
 
 ## Stack
 
@@ -31,9 +31,21 @@ Base técnica completa de Fase 5 para una plataforma web de gestión nutricional
 - Eliminación excepcional de registros erróneos, restringida a administrador.
 - Migraciones y seeds idempotentes con datos ficticios.
 - Pacientes identificados, provisorios y NN con RUT validado o identificador temporal único.
+- Número de ficha hospitalaria opcional y único para vincular cada paciente con su registro institucional.
+- Registro opcional de nombre informado y edad estimada al crear pacientes NN.
+- Normalización a mayúsculas y unicidad del número de ficha hospitalaria.
+- Revisión de coincidencias potenciales antes de crear una ficha duplicada.
 - Hospitalizaciones longitudinales con una sola activa por paciente.
 - Asignación y traslado entre camas con ubicación actual e historial completo.
 - Identificación posterior y conciliación no destructiva de fichas provisorias.
+- Comparación explícita de ficha NN e histórica antes de conciliar un RUT existente.
+- Resolución por jefatura de ingresos activos duplicados mediante cierre administrativo,
+  distinto del alta médica y con conservación íntegra del historial.
+- Mapa visual de camas por servicio y sala, con estados libre y ocupada.
+- Selección inicial y restauración del último servicio activo asignado al nutricionista.
+- Posicionamiento espacial mediante CSS Grid, incluyendo camas sin posición y conflictos.
+- Panel operacional mínimo de solo lectura, sin consultas adicionales ni datos personales innecesarios.
+- Actualización manual y automática del mapa cada 45 segundos, sensible a la visibilidad.
 
 ## Inicio con Docker
 
@@ -122,13 +134,13 @@ checksum del archivo en auditoría y no elimina registros ausentes del Excel.
 En PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase5.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase6.ps1
 ```
 
 En Linux/macOS:
 
 ```bash
-./scripts_verify_phase5.sh
+./scripts_verify_phase6.sh
 ```
 
 El verificador ejecuta pruebas backend y frontend, build, contrato OpenAPI, metadata,
@@ -137,7 +149,7 @@ está disponible.
 
 ## Alcance
 
-Fase 5 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
-hospitalizaciones y ubicación actual. Evaluaciones nutricionales, diagnósticos,
-requerimientos, prescripciones, raciones y otros datos clínico-nutricionales permanecen
-fuera de alcance.
+Fase 6 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+hospitalizaciones, ubicación actual y un mapa operacional de camas de solo lectura.
+Evaluaciones nutricionales, diagnósticos, requerimientos, prescripciones, regímenes,
+raciones, etiquetas y otros datos clínico-nutricionales permanecen fuera de alcance.

@@ -122,6 +122,7 @@ function mockApi(patient: any = nnPatient, activeItems: any[] = [admission]) {
     const url = String(input)
     if (url.includes('/hospital/structure')) return json(structure)
     if (url.includes('/admissions/active')) return json({ items: activeItems, total: activeItems.length })
+    if (url.includes('/patients/potential-matches')) return json({ items: [], total: 0 })
     if (url.includes(`/patients/${patient.id}`)) return json(patient)
     if (url.includes('/patients?')) {
       return json({ items: [patient], total: 1, page: 1, page_size: 10 })
@@ -175,14 +176,121 @@ describe('pacientes', () => {
     const dialog = await screen.findByRole('dialog', { hidden: true })
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Tipo de ficha' }))
     await userEvent.click(await screen.findByRole('option', { name: 'Paciente NN' }))
+    await userEvent.type(within(dialog).getByLabelText('Nombres informados (opcional)'), 'Nombre NN')
+    await userEvent.type(within(dialog).getByLabelText('Primer apellido informado (opcional)'), 'Apellido NN')
+    await userEvent.type(within(dialog).getByLabelText('Edad estimada (opcional)'), '52')
     await userEvent.type(within(dialog).getByLabelText('Descripción provisoria'), 'Paciente sin documentos')
+    expect(within(dialog).getByLabelText('Número de ficha (opcional)')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Crear paciente NN' }))
 
     await waitFor(() => {
       const request = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/patients/unidentified'))
       expect(request).toBeTruthy()
       expect((request?.[1]?.headers as Headers).get('X-CSRF-Token')).toBe('csrf-demo')
+      expect(JSON.parse(String(request?.[1]?.body))).toEqual(expect.objectContaining({
+        given_names: 'Nombre NN',
+        first_surname: 'Apellido NN',
+        age_years: 52,
+      }))
     })
+  })
+
+  it('bloquea una nueva ficha cuando RUT o número de ficha ya existen', async () => {
+    const existing = {
+      ...nnPatient,
+      identity_status: 'identified',
+      temporary_identifier: null,
+      rut: '12345678-5',
+      given_names: 'Persona',
+      first_surname: 'Existente',
+      active_admission: null,
+      admissions: [],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return json(structure)
+      if (url.includes('/admissions/active')) return json({ items: [], total: 0 })
+      if (url.includes('/patients/potential-matches')) return json({ items: [existing], total: 1 })
+      if (url.endsWith(`/patients/${existing.id}`)) return json(existing)
+      if (url.includes('/patients?')) return json({ items: [existing], total: 1, page: 1, page_size: 10 })
+      return json({})
+    })
+    render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
+    await screen.findByText('Persona Existente')
+    await userEvent.click(screen.getByRole('button', { name: 'Crear paciente' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^RUT/ }), '12.345.678-5')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^Nombres/ }), 'Persona')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^Primer apellido/ }), 'Existente')
+    await userEvent.type(within(dialog).getByLabelText('Número de ficha (opcional)'), 'urg-001')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Crear paciente' }))
+
+    expect(await within(dialog).findByText(/Ya existe una ficha con el mismo RUT o número de ficha/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Crear ficha diferente' })).toBeDisabled()
+    expect(fetchMock.mock.calls.some(([url, options]) => (
+      String(url).endsWith('/patients') && options?.method === 'POST'
+    ))).toBe(false)
+  })
+
+  it('permite confirmar una coincidencia sólo nominal y normaliza el número de ficha', async () => {
+    const similar = { ...nnPatient, active_admission: null, admissions: [] }
+    const created = {
+      ...similar,
+      id: '50000000-0000-0000-0000-000000000098',
+      identity_status: 'identified',
+      temporary_identifier: null,
+      rut: '10000004-0',
+      given_names: 'Nombre',
+      first_surname: 'Similar',
+      hospital_identifier: 'FICHA-X1',
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return json(structure)
+      if (url.includes('/admissions/active')) return json({ items: [], total: 0 })
+      if (url.includes('/patients/potential-matches')) return json({ items: [similar], total: 1 })
+      if (url.endsWith('/patients') && init?.method === 'POST') return json(created, 201)
+      if (url.includes('/patients?')) return json({ items: [similar], total: 1, page: 1, page_size: 10 })
+      if (url.endsWith(`/patients/${similar.id}`)) return json(similar)
+      return json({})
+    })
+    render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
+    await screen.findByText(`Paciente NN · ${nnPatient.temporary_identifier}`)
+    await userEvent.click(screen.getByRole('button', { name: 'Crear paciente' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^RUT/ }), '10.000.004-0')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^Nombres/ }), 'Nombre')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /^Primer apellido/ }), 'Similar')
+    await userEvent.type(within(dialog).getByLabelText('Número de ficha (opcional)'), 'ficha-x1')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Crear paciente' }))
+    await userEvent.click(await within(dialog).findByRole('checkbox', {
+      name: /Revisé las coincidencias/,
+    }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Crear ficha diferente' }))
+
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([url, options]) => (
+        String(url).endsWith('/patients') && options?.method === 'POST'
+      ))
+      expect(request).toBeTruthy()
+      expect(JSON.parse(String(request?.[1]?.body)).hospital_identifier).toBe('FICHA-X1')
+    })
+  })
+
+  it('muestra el nombre informado y la edad estimada de un paciente NN', async () => {
+    const namedNn = {
+      ...nnPatient,
+      given_names: 'Nombre',
+      first_surname: 'Informado',
+      date_of_birth: '1974-08-05',
+      date_of_birth_is_estimated: true,
+    }
+    mockApi(namedNn)
+    render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
+
+    await userEvent.click(await screen.findByText(`Nombre Informado · ${nnPatient.temporary_identifier}`))
+    expect(await screen.findByText(/Edad: 52 años · edad estimada/)).toBeInTheDocument()
+    expect(screen.getByText('N.º ficha: URG-001')).toBeInTheDocument()
   })
 
   it('distingue cama ocupada y disponible al trasladar', async () => {
@@ -223,6 +331,211 @@ describe('pacientes', () => {
         expect.stringContaining(`/patients/${nnPatient.id}/identity`),
         expect.objectContaining({ method: 'PATCH' }),
       )
+    })
+  })
+
+  it('compara y concilia explícitamente una ficha NN con un RUT histórico', async () => {
+    const historicalAdmission = {
+      ...admission,
+      id: '30000000-0000-0000-0000-000000000099',
+      admission_identifier: 'ADM-HIST-001',
+      status: 'discharged',
+      ended_at: '2026-01-10T10:00:00Z',
+      current_location: null,
+      location_history: [],
+    }
+    const canonical = {
+      ...nnPatient,
+      id: '50000000-0000-0000-0000-000000000088',
+      identity_status: 'identified',
+      temporary_identifier: null,
+      rut: '12345678-5',
+      given_names: 'Persona',
+      first_surname: 'Histórica',
+      date_of_birth: '1980-02-10',
+      date_of_birth_is_estimated: false,
+      hospital_identifier: 'FICHA-ANTIGUA',
+      active_admission: null,
+      admissions: [historicalAdmission],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return json(structure)
+      if (url.includes('/admissions/active')) return json({ items: [admission], total: 1 })
+      if (url.endsWith(`/patients/${nnPatient.id}/identity`) && init?.method === 'PATCH') {
+        return json({ detail: 'El RUT ya pertenece a otro paciente; debe realizar una conciliación explícita.' }, 409)
+      }
+      if (url.endsWith(`/patients/${nnPatient.id}/reconcile`) && init?.method === 'POST') {
+        return json({ ...canonical, active_admission: admission, admissions: [admission, historicalAdmission] })
+      }
+      if (url.endsWith(`/patients/${canonical.id}`)) return json(canonical)
+      if (url.includes('/patients?q=')) return json({ items: [canonical], total: 1, page: 1, page_size: 20 })
+      if (url.endsWith(`/patients/${nnPatient.id}`)) return json(nnPatient)
+      if (url.includes('/patients?')) return json({ items: [nnPatient], total: 1, page: 1, page_size: 10 })
+      return json({})
+    })
+    render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
+    await userEvent.click(await screen.findByText(`Paciente NN · ${nnPatient.temporary_identifier}`))
+    await userEvent.click(await screen.findByRole('button', { name: 'Identificar paciente' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /RUT confirmado/ }), '12.345.678-5')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Nombres/ }), 'Persona')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Primer apellido/ }), 'Histórica')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmar identidad' }))
+
+    expect(await within(dialog).findByText('Conciliación requerida')).toBeInTheDocument()
+    expect(within(dialog).getByText('Ficha NN actual')).toBeInTheDocument()
+    expect(within(dialog).getByText('Ficha histórica principal')).toBeInTheDocument()
+    expect(within(dialog).getByText(/FICHA-ANTIGUA/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/1 hospitalización registrada/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/La ficha histórica seguirá siendo la principal/)).toBeInTheDocument()
+
+    const reconcileButton = within(dialog).getByRole('button', { name: 'Conciliar y conservar historial' })
+    expect(reconcileButton).toBeDisabled()
+    await userEvent.type(
+      within(dialog).getByRole('textbox', { name: /Motivo de conciliación/ }),
+      'Identidad confirmada con antecedentes institucionales.',
+    )
+    await userEvent.click(within(dialog).getByRole('checkbox', {
+      name: 'Confirmo que ambas fichas corresponden a la misma persona.',
+    }))
+    expect(reconcileButton).toBeEnabled()
+    await userEvent.click(reconcileButton)
+
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([url, options]) => (
+        String(url).endsWith(`/patients/${nnPatient.id}/reconcile`)
+        && options?.method === 'POST'
+      ))
+      expect(request).toBeTruthy()
+      expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+        rut: canonical.rut,
+        reason: 'Identidad confirmada con antecedentes institucionales.',
+      })
+    })
+  })
+
+  it('bloquea la conciliación visual si ambas fichas tienen ingresos activos', async () => {
+    const canonical = {
+      ...nnPatient,
+      id: '50000000-0000-0000-0000-000000000077',
+      identity_status: 'identified',
+      temporary_identifier: null,
+      rut: '12345678-5',
+      given_names: 'Paciente',
+      first_surname: 'Existente',
+      active_admission: { ...admission, id: '30000000-0000-0000-0000-000000000077' },
+      admissions: [{ ...admission, id: '30000000-0000-0000-0000-000000000077' }],
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return json(structure)
+      if (url.includes('/admissions/active')) return json({ items: [admission], total: 1 })
+      if (url.endsWith(`/patients/${nnPatient.id}/identity`) && init?.method === 'PATCH') {
+        return json({ detail: 'El RUT ya pertenece a otro paciente.' }, 409)
+      }
+      if (url.endsWith(`/patients/${canonical.id}`)) return json(canonical)
+      if (url.includes('/patients?q=')) return json({ items: [canonical], total: 1, page: 1, page_size: 20 })
+      if (url.endsWith(`/patients/${nnPatient.id}`)) return json(nnPatient)
+      if (url.includes('/patients?')) return json({ items: [nnPatient], total: 1, page: 1, page_size: 10 })
+      return json({})
+    })
+    render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
+    await userEvent.click(await screen.findByText(`Paciente NN · ${nnPatient.temporary_identifier}`))
+    await userEvent.click(await screen.findByRole('button', { name: 'Identificar paciente' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /RUT confirmado/ }), '12.345.678-5')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Nombres/ }), 'Paciente')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Primer apellido/ }), 'Existente')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmar identidad' }))
+
+    expect(await within(dialog).findByText(/Ambas fichas tienen hospitalizaciones activas/)).toBeInTheDocument()
+    await userEvent.type(
+      within(dialog).getByRole('textbox', { name: /Motivo de conciliación/ }),
+      'Coincidencia revisada por el equipo responsable.',
+    )
+    await userEvent.click(within(dialog).getByRole('checkbox', {
+      name: 'Confirmo que ambas fichas corresponden a la misma persona.',
+    }))
+    expect(within(dialog).getByRole('button', { name: 'Conciliar y conservar historial' })).toBeDisabled()
+  })
+
+  it('permite a jefatura cerrar administrativamente un ingreso duplicado y conciliar', async () => {
+    const canonicalAdmission = {
+      ...admission,
+      id: '30000000-0000-0000-0000-000000000077',
+      admission_identifier: 'ADM-CANONICA',
+    }
+    const canonical = {
+      ...nnPatient,
+      id: '50000000-0000-0000-0000-000000000077',
+      identity_status: 'identified',
+      temporary_identifier: null,
+      rut: '12345678-5',
+      given_names: 'Paciente',
+      first_surname: 'Existente',
+      active_admission: canonicalAdmission,
+      admissions: [canonicalAdmission],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return json(structure)
+      if (url.includes('/admissions/active')) return json({ items: [admission, canonicalAdmission], total: 2 })
+      if (url.endsWith(`/patients/${nnPatient.id}/identity`) && init?.method === 'PATCH') {
+        return json({ detail: 'El RUT ya pertenece a otro paciente.' }, 409)
+      }
+      if (url.endsWith(`/patients/${nnPatient.id}/reconcile-active-conflict`) && init?.method === 'POST') {
+        return json({ ...canonical, active_admission: canonicalAdmission, admissions: [canonicalAdmission] })
+      }
+      if (url.endsWith(`/patients/${canonical.id}`)) return json(canonical)
+      if (url.includes('/patients?q=')) return json({ items: [canonical], total: 1, page: 1, page_size: 20 })
+      if (url.endsWith(`/patients/${nnPatient.id}`)) return json(nnPatient)
+      if (url.includes('/patients?')) return json({ items: [nnPatient], total: 1, page: 1, page_size: 10 })
+      return json({})
+    })
+    render(
+      <PatientsDashboard
+        canMutate
+        canResolveActiveConflicts
+        csrfToken="csrf-demo"
+      />,
+    )
+    await userEvent.click(await screen.findByText(`Paciente NN · ${nnPatient.temporary_identifier}`))
+    await userEvent.click(await screen.findByRole('button', { name: 'Identificar paciente' }))
+    const dialog = await screen.findByRole('dialog', { hidden: true })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /RUT confirmado/ }), '12.345.678-5')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Nombres/ }), 'Paciente')
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Primer apellido/ }), 'Existente')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmar identidad' }))
+
+    const selector = await within(dialog).findByRole('combobox', {
+      name: 'Ingreso duplicado que se cerrará',
+    })
+    await userEvent.click(selector)
+    await userEvent.click(await screen.findByRole('option', {
+      name: `${admission.admission_identifier} · ficha NN actual`,
+    }))
+    await userEvent.type(
+      within(dialog).getByRole('textbox', { name: /Motivo de conciliación/ }),
+      'Duplicidad confirmada por jefatura responsable.',
+    )
+    await userEvent.click(within(dialog).getByRole('checkbox', {
+      name: 'Confirmo que ambas fichas corresponden a la misma persona.',
+    }))
+    await userEvent.click(within(dialog).getByRole('button', {
+      name: 'Resolver duplicidad y conciliar',
+    }))
+
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([url, options]) => (
+        String(url).endsWith(`/patients/${nnPatient.id}/reconcile-active-conflict`)
+        && options?.method === 'POST'
+      ))
+      expect(request).toBeTruthy()
+      expect(JSON.parse(String(request?.[1]?.body))).toEqual(expect.objectContaining({
+        admission_to_close_id: admission.id,
+        rut: canonical.rut,
+      }))
     })
   })
 

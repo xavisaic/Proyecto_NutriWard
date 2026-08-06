@@ -144,11 +144,61 @@ describe('flujo de autenticación', () => {
     }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
-      return jsonResponse(url.includes('/auth/me') ? foodSession : emptyStructure)
+      if (url.includes('/auth/me')) return jsonResponse(foodSession)
+      if (url.includes('/bed-map')) {
+        return jsonResponse({
+          generated_at: '2026-08-01T15:30:00Z',
+          service: { id: 'service', code: 'MED', name: 'Medicina' },
+          rooms: [],
+        })
+      }
+      return jsonResponse({
+        items: [{
+          id: 'service', code: 'MED', name: 'Medicina', description: null,
+          is_active: true, rooms: [], created_at: '', updated_at: '',
+        }],
+        total: 1,
+      })
     })
     renderApp('/')
-    expect(await screen.findByRole('heading', { name: 'Estructura hospitalaria' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Mapa de camas' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Mapa de camas' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Pacientes' })).not.toBeInTheDocument()
+  })
+
+  it('muestra el módulo Mapa de camas a los cuatro roles autorizados', async () => {
+    for (const role of ['administrador', 'jefatura', 'nutricionista', 'alimentacion']) {
+      const roleSession = { ...demoSession, user: { ...demoSession.user, roles: [role] } }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input)
+        if (url.includes('/auth/me')) return jsonResponse(roleSession)
+        if (url.includes('/patients?')) return jsonResponse(emptyPatients)
+        if (url.includes('/admissions/active')) return jsonResponse(emptyAdmissions)
+        if (url.includes('/bed-map')) {
+          return jsonResponse({
+            generated_at: '2026-08-01T15:30:00Z',
+            service: { id: 'service', code: 'MED', name: 'Medicina' },
+            rooms: [],
+          })
+        }
+        return jsonResponse({
+          items: [{
+            id: 'service', code: 'MED', name: 'Medicina', description: null,
+            is_active: true, rooms: [], created_at: '', updated_at: '',
+          }],
+          total: 1,
+        })
+      })
+      renderApp('/')
+      const mapTab = await screen.findByRole('tab', { name: 'Mapa de camas' })
+      await userEvent.click(mapTab)
+      expect(await screen.findByRole('heading', { name: 'Mapa de camas' })).toBeInTheDocument()
+      if (role === 'alimentacion') {
+        expect(screen.queryByRole('tab', { name: 'Pacientes' })).not.toBeInTheDocument()
+      }
+      cleanup()
+      vi.restoreAllMocks()
+    }
   })
 })
 

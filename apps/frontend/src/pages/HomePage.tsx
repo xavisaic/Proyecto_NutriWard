@@ -18,6 +18,7 @@ import { useState } from 'react'
 import { AdministrationDashboard } from '../modules/administration/AdministrationDashboard'
 import { useAuth } from '../modules/auth/AuthContext'
 import { HospitalDashboard } from '../modules/hospital/HospitalDashboard'
+import { BedMapDashboard } from '../modules/bed-map/BedMapDashboard'
 import { PatientsDashboard } from '../modules/patients/PatientsDashboard'
 
 export function HomePage() {
@@ -34,8 +35,15 @@ export function HomePage() {
   const canMutatePatients = user.roles.some(
     (role) => role === 'jefatura' || role === 'nutricionista',
   )
-  const [module, setModule] = useState<'hospital' | 'patients' | 'administration'>(
-    user.roles.includes('nutricionista') && !canReadAdministration ? 'patients' : 'hospital',
+  const canReadBedMap = user.roles.some((role) =>
+    ['administrador', 'jefatura', 'nutricionista', 'alimentacion'].includes(role),
+  )
+  const [module, setModule] = useState<'hospital' | 'bed-map' | 'patients' | 'administration'>(
+    user.roles.includes('alimentacion') && !canReadPatients
+      ? 'bed-map'
+      : user.roles.includes('nutricionista') && !canReadAdministration
+        ? 'patients'
+        : 'hospital',
   )
 
   return (
@@ -87,7 +95,7 @@ export function HomePage() {
       </AppBar>
 
       <Container component="main" maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
-        {(canReadPatients || canReadAdministration) && (
+        {(canReadBedMap || canReadPatients || canReadAdministration) && (
           <Paper variant="outlined" sx={{ mb: 3 }}>
             <Tabs
               value={module}
@@ -95,6 +103,7 @@ export function HomePage() {
               aria-label="Módulos de NutriWard"
             >
               <Tab value="hospital" label="Estructura hospitalaria" />
+              {canReadBedMap && <Tab value="bed-map" label="Mapa de camas" />}
               {canReadPatients && <Tab value="patients" label="Pacientes" />}
               {canReadAdministration && <Tab value="administration" label="Administración" />}
             </Tabs>
@@ -106,9 +115,15 @@ export function HomePage() {
             canDelete={canDelete}
             csrfToken={session!.csrf_token}
           />
+        ) : module === 'bed-map' ? (
+          <BedMapDashboard
+            userId={user.id}
+            isNutritionist={user.roles.includes('nutricionista')}
+          />
         ) : module === 'patients' ? (
           <PatientsDashboard
             canMutate={canMutatePatients}
+            canResolveActiveConflicts={user.roles.includes('jefatura')}
             csrfToken={session!.csrf_token}
           />
         ) : (

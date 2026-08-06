@@ -103,6 +103,54 @@ export interface HospitalStructure {
   total: number
 }
 
+export interface BedMapLayout {
+  grid_x: number
+  grid_y: number
+  width: number
+  height: number
+}
+
+export interface BedMapPatient {
+  id: string
+  display_name: string
+  identity_status: IdentityStatus
+  age_years: number | null
+  age_is_estimated: boolean
+}
+
+export interface BedMapAdmission {
+  id: string
+  admission_identifier: string
+  status: 'active'
+  admitted_at: string
+}
+
+export interface BedMapBed {
+  id: string
+  code: string
+  label: string | null
+  status: 'free' | 'occupied'
+  layout: BedMapLayout | null
+  occupancy: {
+    patient: BedMapPatient
+    admission: BedMapAdmission
+  } | null
+}
+
+export interface BedMapRoom {
+  id: string
+  code: string
+  name: string
+  floor: string | null
+  beds: BedMapBed[]
+}
+
+export interface BedMap {
+  generated_at: string
+  service: Pick<HospitalService, 'id' | 'code' | 'name'>
+  rooms: BedMapRoom[]
+}
+
 export type IdentityStatus = 'unidentified' | 'provisional' | 'identified'
 export type AdmissionStatus = 'active' | 'discharged' | 'deceased' | 'closed'
 
@@ -175,6 +223,11 @@ export interface PatientList {
   total: number
   page: number
   page_size: number
+}
+
+export interface PotentialPatientMatches {
+  items: Patient[]
+  total: number
 }
 
 export interface AdmissionList {

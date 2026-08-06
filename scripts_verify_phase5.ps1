@@ -22,7 +22,9 @@ try {
     Push-Location "apps/backend"
     $heads = alembic heads
     Assert-NativeSuccess "Alembic heads"
-    if ($heads -notmatch "20260731_0006") { throw "Unexpected Alembic head: $heads" }
+    if ($heads -notmatch "20260805_0008") { throw "Unexpected Alembic head: $heads" }
+    $history = alembic history
+    if (($history -join "`n") -notmatch "20260731_0006") { throw "Phase 5 revision is missing from Alembic history." }
     alembic upgrade head --sql | Out-Null
     Assert-NativeSuccess "Alembic upgrade SQL"
     alembic downgrade 20260731_0006:20260728_0005 --sql | Out-Null
