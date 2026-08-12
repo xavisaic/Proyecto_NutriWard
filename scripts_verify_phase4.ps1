@@ -17,16 +17,15 @@ try {
 
     Write-Host "[2/7] database metadata"
     $env:PYTHONPATH = "apps/backend"
-    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions'}; actual=set(get_metadata().tables); assert expected == actual, (expected-actual, actual-expected); print('tables', sorted(actual))"
+    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions'}; actual=set(get_metadata().tables); assert expected <= actual, expected-actual; print('tables', sorted(actual))"
     Assert-NativeSuccess "Database metadata validation"
 
     Write-Host "[3/7] migration chain"
     Push-Location "apps/backend"
-    $heads = alembic heads
+    $heads = @(alembic heads)
     Assert-NativeSuccess "Alembic heads"
-    if ($heads -notmatch "20260728_0005") {
-        throw "Unexpected Alembic head: $heads"
-    }
+    if ($heads.Count -ne 1) { throw "Expected one Alembic head: $heads" }
+    if (((alembic history) -join "`n") -notmatch "20260728_0005") { throw "Phase 4 revision is missing." }
     alembic upgrade head --sql | Out-Null
     Assert-NativeSuccess "Alembic migration chain"
     Pop-Location

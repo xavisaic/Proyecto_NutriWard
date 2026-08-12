@@ -31,14 +31,15 @@ try {
     Assert-NativeSuccess "OpenAPI contract"
 
     Write-Host "[5/9] database metadata remains unchanged"
-    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected == actual, (expected-actual, actual-expected); print('tables', sorted(actual))"
+    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected <= actual, expected-actual; print('tables', sorted(actual))"
     Assert-NativeSuccess "Database metadata"
 
     Write-Host "[6/9] Alembic chain and normalized unique patient number"
     Push-Location "apps/backend"
-    $heads = alembic heads
+    $heads = @(alembic heads)
     Assert-NativeSuccess "Alembic heads"
-    if ($heads -notmatch "20260805_0008" -or $heads -match "\(branchpoint\)") { throw "Unexpected Alembic head: $heads" }
+    if ($heads.Count -ne 1 -or $heads[0] -match "\(branchpoint\)") { throw "Unexpected Alembic heads: $heads" }
+    if (((alembic history) -join "`n") -notmatch "20260805_0008") { throw "Phase 6 parent revision is missing." }
     alembic upgrade head --sql | Out-Null
     Assert-NativeSuccess "Alembic upgrade SQL"
     alembic downgrade 20260805_0008:20260805_0007 --sql | Out-Null

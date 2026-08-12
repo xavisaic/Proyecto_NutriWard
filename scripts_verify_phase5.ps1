@@ -15,14 +15,14 @@ try {
 
     Write-Host "[2/8] database metadata"
     $env:PYTHONPATH = "apps/backend"
-    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected == actual, (expected-actual, actual-expected); print('tables', sorted(actual))"
+    python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected <= actual, expected-actual; print('tables', sorted(actual))"
     Assert-NativeSuccess "Database metadata"
 
     Write-Host "[3/8] migration chain and reversible SQL"
     Push-Location "apps/backend"
-    $heads = alembic heads
+    $heads = @(alembic heads)
     Assert-NativeSuccess "Alembic heads"
-    if ($heads -notmatch "20260805_0008") { throw "Unexpected Alembic head: $heads" }
+    if ($heads.Count -ne 1) { throw "Expected one Alembic head: $heads" }
     $history = alembic history
     if (($history -join "`n") -notmatch "20260731_0006") { throw "Phase 5 revision is missing from Alembic history." }
     alembic upgrade head --sql | Out-Null

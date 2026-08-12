@@ -10,6 +10,7 @@ from app.api.v1.endpoints.nutritionist_service_assignments import (
 from app.api.v1.endpoints.patients import router as patients_router
 from app.api.v1.endpoints.roles import router as roles_router
 from app.api.v1.endpoints.users import router as users_router
+from app.api.v1.endpoints.transfers import router as transfers_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
@@ -20,3 +21,4 @@ api_router.include_router(nutritionist_service_assignments_router)
 api_router.include_router(hospital_router)
 api_router.include_router(patients_router)
 api_router.include_router(bed_map_router)
+api_router.include_router(transfers_router)

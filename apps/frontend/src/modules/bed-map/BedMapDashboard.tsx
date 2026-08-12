@@ -19,7 +19,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { CheckCircle2, CircleAlert, RefreshCw, UserRound, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, CircleAlert, RefreshCw, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -33,6 +33,7 @@ import {
   IdentityStatus,
   NutritionistServiceAssignmentList,
 } from '../../shared/services/api'
+import { MovePatientDialog, ReceptionTray } from '../transfers/Transfers'
 
 const REFRESH_INTERVAL_MS = 45_000
 const ALL_ROOMS = 'all'
@@ -41,6 +42,8 @@ const SERVICE_PREFERENCE_PREFIX = 'nutriward:bed-map:service:'
 interface BedMapDashboardProps {
   userId?: string
   isNutritionist?: boolean
+  canMutateTransfers?: boolean
+  csrfToken?: string
 }
 
 const identityLabels: Record<IdentityStatus, string> = {
@@ -70,14 +73,31 @@ function updatedAgo(value: string, now: number): string {
   return `Actualizado hace ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}`
 }
 
+function transferElapsed(value: string): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000))
+  if (minutes < 1) return 'Solicitado hace menos de un minuto'
+  if (minutes < 60) return `Solicitado hace ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `Solicitado hace ${hours} h`
+  const days = Math.floor(hours / 24)
+  return `Solicitado hace ${days} ${days === 1 ? 'día' : 'días'}`
+}
+
+function pendingTransferLabel(transfer: NonNullable<NonNullable<BedMapBed['occupancy']>['pending_transfer']>): string {
+  return transfer.status === 'pending_reception'
+    ? `Traslado solicitado · ${transfer.destination_service_code}`
+    : `Aceptado · espera cama · ${transfer.destination_service_code}`
+}
+
 function bedTitle(bed: BedMapBed): string {
   return bed.label || `Cama ${bed.code}`
 }
 
 function accessibleBedLabel(bed: BedMapBed): string {
   const title = bedTitle(bed)
+  const pendingTransfer = bed.occupancy?.pending_transfer
   return bed.occupancy
-    ? `${title}, ocupada por ${bed.occupancy.patient.display_name}`
+    ? `${title}, ocupada por ${bed.occupancy.patient.display_name}${pendingTransfer ? `, ${pendingTransferLabel(pendingTransfer)}` : ''}`
     : `${title}, libre`
 }
 
@@ -122,6 +142,7 @@ function BedBlock({
   registerTrigger: (bedId: string, element: HTMLButtonElement | null) => void
 }) {
   const occupied = bed.status === 'occupied' && bed.occupancy
+  const pendingTransfer = occupied ? occupied.pending_transfer : null
   const layout = bed.layout
 
   return (
@@ -142,6 +163,7 @@ function BedBlock({
         borderColor: occupied ? 'warning.dark' : 'success.dark',
         borderRadius: 2,
         bgcolor: occupied ? '#fff8e1' : '#edf7ed',
+        boxShadow: pendingTransfer ? 'inset 5px 0 0 #6d28d9' : 'none',
         p: 1.5,
         alignSelf: 'stretch',
         ...(positioned && layout
@@ -175,6 +197,30 @@ function BedBlock({
                 ? 'Edad no registrada'
                 : `${occupied.patient.age_years} años${occupied.patient.age_is_estimated ? ' · estimada' : ''}`}
             </Typography>
+            {pendingTransfer && (
+              <Stack spacing={0.25}>
+                <Chip
+                  size="small"
+                  icon={<ArrowRightLeft size={15} aria-hidden="true" />}
+                  label={pendingTransferLabel(pendingTransfer)}
+                  title={`${pendingTransferLabel(pendingTransfer)} · ${pendingTransfer.destination_service_name}`}
+                  sx={{
+                    alignSelf: 'flex-start',
+                    height: 'auto',
+                    maxWidth: '100%',
+                    border: '1px solid #8b5cf6',
+                    bgcolor: '#ede9fe',
+                    color: '#5b21b6',
+                    fontWeight: 800,
+                    '& .MuiChip-icon': { color: '#6d28d9', ml: 0.75 },
+                    '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 },
+                  }}
+                />
+                <Typography variant="caption" sx={{ color: '#5b21b6', fontWeight: 650 }}>
+                  {transferElapsed(pendingTransfer.requested_at)}
+                </Typography>
+              </Stack>
+            )}
             <Typography variant="caption">Hospitalización {occupied.admission.status}</Typography>
             <Typography variant="caption" color="text.secondary">
               Régimen: No disponible en esta fase
@@ -308,10 +354,14 @@ function OccupancyDrawer({
   service,
   selection,
   onClose,
+  canMove,
+  onMove,
 }: {
   service: BedMap['service'] | null
   selection: Selection | null
   onClose: () => void
+  canMove: boolean
+  onMove: () => void
 }) {
   const occupancy = selection?.bed.occupancy
   return (
@@ -354,7 +404,20 @@ function OccupancyDrawer({
               <Typography variant="body2">Ingreso: {formatDateTime(occupancy.admission.admitted_at)}</Typography>
               <Typography variant="body2">Estado: {occupancy.admission.status}</Typography>
             </Box>
+            {occupancy.pending_transfer && (
+              <Alert severity="info" icon={<ArrowRightLeft aria-hidden="true" />}>
+                <Typography fontWeight={800}>{pendingTransferLabel(occupancy.pending_transfer)}</Typography>
+                <Typography variant="body2">
+                  Destino: {occupancy.pending_transfer.destination_service_name}.{' '}
+                  {transferElapsed(occupancy.pending_transfer.requested_at)}.
+                </Typography>
+                <Typography variant="caption">
+                  El paciente continúa ocupando esta cama hasta que se asigne una cama destino.
+                </Typography>
+              </Alert>
+            )}
             <Alert severity="info">Régimen: No disponible en esta fase</Alert>
+            {canMove && <Button variant="contained" onClick={onMove}>Mover paciente</Button>}
             <Button variant="outlined" onClick={onClose}>Cerrar</Button>
           </Stack>
         )}
@@ -366,6 +429,8 @@ function OccupancyDrawer({
 export function BedMapDashboard({
   userId,
   isNutritionist = false,
+  canMutateTransfers = false,
+  csrfToken = '',
 }: BedMapDashboardProps = {}) {
   const [services, setServices] = useState<HospitalService[] | null>(null)
   const [assignedServiceIds, setAssignedServiceIds] = useState<Set<string>>(new Set())
@@ -379,6 +444,8 @@ export function BedMapDashboard({
   const [notice, setNotice] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [clock, setClock] = useState(Date.now())
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [trayRefreshToken, setTrayRefreshToken] = useState(0)
   const requestSequence = useRef(0)
   const abortController = useRef<AbortController | null>(null)
   const catalogAbortController = useRef<AbortController | null>(null)
@@ -631,6 +698,16 @@ export function BedMapDashboard({
         </CardContent>
       </Card>
 
+      {selectedServiceId && csrfToken && (
+        <ReceptionTray
+          serviceId={selectedServiceId}
+          canMutate={canMutateTransfers}
+          csrfToken={csrfToken}
+          refreshToken={trayRefreshToken}
+          onMutation={() => void loadMap(selectedServiceId, true)}
+        />
+      )}
+
       {refreshError && (
         <Alert
           severity="warning"
@@ -671,7 +748,32 @@ export function BedMapDashboard({
         ))
       )}
 
-      <OccupancyDrawer service={bedMap?.service ?? null} selection={selection} onClose={closePanel} />
+      <OccupancyDrawer
+        service={bedMap?.service ?? null}
+        selection={selection}
+        onClose={closePanel}
+        canMove={canMutateTransfers}
+        onMove={() => setMoveOpen(true)}
+      />
+      <MovePatientDialog
+        open={moveOpen}
+        admission={selection?.bed.occupancy ? {
+          id: selection.bed.occupancy.admission.id,
+          current_location: {
+            service_id: bedMap?.service.id ?? null,
+            care_unit_id: selection.bed.id,
+          },
+        } : null}
+        services={services ?? []}
+        csrfToken={csrfToken}
+        onClose={() => setMoveOpen(false)}
+        onCompleted={() => {
+          setMoveOpen(false)
+          closePanel()
+          setTrayRefreshToken((value) => value + 1)
+          if (selectedServiceId) void loadMap(selectedServiceId, true)
+        }}
+      />
       <Snackbar
         open={Boolean(notice)}
         autoHideDuration={6000}

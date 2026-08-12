@@ -11,12 +11,12 @@ echo "[1/7] backend tests"
 )
 
 echo "[2/7] database metadata"
-PYTHONPATH=apps/backend python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions'}; actual=set(get_metadata().tables); assert expected == actual, (expected-actual, actual-expected); print('tables', sorted(actual))"
+PYTHONPATH=apps/backend python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions'}; actual=set(get_metadata().tables); assert expected <= actual, expected-actual; print('tables', sorted(actual))"
 
 echo "[3/7] migration chain"
 (
   cd apps/backend
-  alembic heads | grep -q "20260728_0005"
+  test "$(alembic heads | wc -l | tr -d ' ')" -eq 1 && alembic history | grep -q "20260728_0005"
   alembic upgrade head --sql >/dev/null
 )
 

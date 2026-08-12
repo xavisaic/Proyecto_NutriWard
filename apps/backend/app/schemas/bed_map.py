@@ -35,9 +35,19 @@ class BedMapAdmission(BaseModel):
     admitted_at: datetime
 
 
+class BedMapPendingTransfer(BaseModel):
+    id: uuid.UUID
+    status: Literal["pending_reception", "pending_bed"]
+    destination_service_id: uuid.UUID
+    destination_service_code: str
+    destination_service_name: str
+    requested_at: datetime
+
+
 class BedMapOccupancy(BaseModel):
     patient: BedMapPatient
     admission: BedMapAdmission
+    pending_transfer: BedMapPendingTransfer | None = None
 
 
 class BedMapBed(BaseModel):

@@ -1,16 +1,22 @@
-# ADR-006: Política de fuente de verdad para raciones durante traslados
+# ADR-006: Fuente de verdad futura para raciones durante traslados
 
 - **Estado**: Aprobado
 - **Fecha**: 2026-05-25
+- **Aclarado**: 2026-08-12 (Fase 7; raciones aún fuera de alcance)
 
 ## Decisión
-La fuente de verdad operativa para raciones será la **ubicación activa efectiva** de la hospitalización en combinación con estado de traslado.
 
-## Regla operativa
-- Mientras traslado esté en `solicitado` o `pendiente_recepcion`: ración sigue en servicio origen.
-- En `aceptado` sin cama: visible en bandeja destino, **sin duplicar consolidado**.
-- En `asignado_cama`: ración pasa al servicio destino.
-- Estados terminales (`rechazado`, `devuelto`, `cancelado`): se conserva lógica previa sin duplicación.
+La futura fuente operacional de raciones será la ubicación vigente de la
+hospitalización. Una solicitud en bandeja no crea una segunda ubicación.
+
+- En `pending_reception` o `pending_bed`, la ubicación y futura fuente continúan en
+  el servicio origen. La bandeja destino no debe duplicar al paciente en consolidados.
+- Al llegar a `assigned_to_bed`, la ubicación efectiva y futura fuente cambian al
+  servicio destino.
+- `rejected`, `returned` y `cancelled` conservan ubicación y fuente en origen.
+- El traslado directo cambia la fuente al destino al completarse atómicamente.
 
 ## Consecuencia
-Se evita contabilización doble en consolidados de central de alimentación.
+
+La recepción anticipa trabajo sin contabilización doble. Fase 7 documenta esta regla,
+pero no implementa raciones, regímenes, prescripciones, consolidados ni etiquetas.

@@ -12,6 +12,10 @@ from app.models.nutritionist_service_assignment import (  # noqa: F401
 )
 from app.models.patient import Patient  # noqa: F401
 from app.models.patient_location_history import PatientLocationHistory  # noqa: F401
+from app.models.patient_transfer_request import PatientTransferRequest  # noqa: F401
+from app.models.patient_transfer_request_status_history import (  # noqa: F401
+    PatientTransferRequestStatusHistory,
+)
 from app.models.role import Role  # noqa: F401
 from app.models.room import Room  # noqa: F401
 from app.models.user import User  # noqa: F401

@@ -119,6 +119,8 @@ export function HomePage() {
           <BedMapDashboard
             userId={user.id}
             isNutritionist={user.roles.includes('nutricionista')}
+            canMutateTransfers={canMutatePatients}
+            csrfToken={session!.csrf_token}
           />
         ) : module === 'patients' ? (
           <PatientsDashboard

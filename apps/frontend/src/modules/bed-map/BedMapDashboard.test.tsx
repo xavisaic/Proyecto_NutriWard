@@ -47,6 +47,7 @@ function occupancy(
       status: 'active' as const,
       admitted_at: '2026-08-01T10:00:00Z',
     },
+    pending_transfer: null,
   }
 }
 
@@ -218,6 +219,39 @@ describe('mapa de camas', () => {
     expect(screen.getByRole('button', { name: /Cama 03, ocupada por Paciente NN/ })).toHaveTextContent('Edad no registrada')
     expect(screen.getByText('Nombre Provisorio')).toBeInTheDocument()
     expect(screen.getAllByText('Régimen: No disponible en esta fase').length).toBeGreaterThan(0)
+  })
+
+  it('distingue en la cama de origen los dos estados de traslado pendiente', async () => {
+    const pendingMap = structuredClone(map)
+    const receptionBed = pendingMap.rooms[0].beds.find((bed) => bed.id === 'bed-occupied')!
+    const pendingBed = pendingMap.rooms[0].beds.find((bed) => bed.id === 'bed-unpositioned')!
+    receptionBed.occupancy!.pending_transfer = {
+      id: 'transfer-reception',
+      status: 'pending_reception',
+      destination_service_id: UCI_ID,
+      destination_service_code: 'UCI',
+      destination_service_name: 'Unidad de Cuidados Intensivos',
+      requested_at: '2026-08-12T10:00:00Z',
+    }
+    pendingBed.occupancy!.pending_transfer = {
+      id: 'transfer-bed',
+      status: 'pending_bed',
+      destination_service_id: UCI_ID,
+      destination_service_code: 'UCI',
+      destination_service_name: 'Unidad de Cuidados Intensivos',
+      requested_at: '2026-08-12T10:05:00Z',
+    }
+    mockApi([pendingMap])
+    render(<BedMapDashboard />)
+
+    const reception = await screen.findByRole('button', { name: /Cama 02, ocupada por Ana Pérez, Traslado solicitado · UCI/ })
+    expect(within(reception).getByText('Traslado solicitado · UCI')).toBeInTheDocument()
+    expect(screen.getByText('Aceptado · espera cama · UCI')).toBeInTheDocument()
+
+    await userEvent.click(reception)
+    const panel = await screen.findByRole('region', { name: 'Detalle de ocupación' })
+    expect(within(panel).getByText(/Destino: Unidad de Cuidados Intensivos/)).toBeInTheDocument()
+    expect(within(panel).getByText(/continúa ocupando esta cama/)).toBeInTheDocument()
   })
 
   it('aplica coordenadas y dimensiones, separa camas sin posición y retira superposiciones del grid', async () => {

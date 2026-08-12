@@ -772,15 +772,25 @@ def _assign_location_without_commit(
 ) -> PatientLocationHistory:
     if admission.status != "active":
         raise _conflict("No se puede modificar la ubicación de una hospitalización terminada.")
-    care_unit = session.exec(
-        select(CareUnit).where(CareUnit.id == payload.care_unit_id).with_for_update()
+    destination_row = session.exec(
+        select(CareUnit, Room, HospitalService)
+        .join(Room, Room.id == CareUnit.room_id)
+        .join(HospitalService, HospitalService.id == Room.service_id)
+        .where(CareUnit.id == payload.care_unit_id)
+        .with_for_update()
     ).first()
-    if care_unit is None:
+    if destination_row is None:
         raise _not_found("Cama")
-    if not care_unit.is_active or care_unit.unit_type != "bed":
+    care_unit, destination_room, destination_service = destination_row
+    if (
+        not care_unit.is_active
+        or care_unit.unit_type != "bed"
+        or not destination_room.is_active
+        or not destination_service.is_active
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La ubicación debe ser una cama activa.",
+            detail="La ubicación debe ser una cama activa de una sala y servicio activos.",
         )
     occupied = session.exec(
         select(PatientLocationHistory).where(
@@ -799,6 +809,19 @@ def _assign_location_without_commit(
     ).first()
     if current is not None and current.care_unit_id == care_unit.id:
         raise _conflict("La hospitalización ya se encuentra en esa cama.")
+    if current is not None:
+        current_structure = session.exec(
+            select(CareUnit, Room)
+            .join(Room, Room.id == CareUnit.room_id)
+            .where(CareUnit.id == current.care_unit_id)
+        ).one()
+        current_bed, current_room = current_structure
+        if not current_bed.is_active or current_bed.unit_type != "bed":
+            raise _conflict("La ubicación vigente debe ser una cama activa.")
+        if current_room.service_id != destination_service.id:
+            raise _conflict(
+                "Los cambios entre servicios deben usar el flujo de traslados."
+            )
 
     now = utc_now()
     action = "location_assigned"
@@ -951,6 +974,17 @@ def _end_admission_without_commit(
 ) -> None:
     if admission.status != "active":
         raise _conflict("La hospitalización ya se encuentra terminada.")
+    # This helper is shared by discharge, death, administrative close, and
+    # duplicate-admission reconciliation, so every terminal path cancels an
+    # open transfer in the same transaction.
+    from app.services.transfer_service import cancel_open_transfer_on_admission_end
+
+    cancel_open_transfer_on_admission_end(
+        session,
+        admission.id,
+        reason=reason,
+        actor_user_id=actor_user_id,
+    )
     before = _snapshot(admission, ADMISSION_AUDIT_FIELDS)
     now = utc_now()
     current_location = session.exec(

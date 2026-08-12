@@ -17,6 +17,10 @@ from app.models.hospital_service import HospitalService
 from app.models.nutritionist_service_assignment import NutritionistServiceAssignment
 from app.models.patient import Patient
 from app.models.patient_location_history import PatientLocationHistory
+from app.models.patient_transfer_request import PatientTransferRequest
+from app.models.patient_transfer_request_status_history import (
+    PatientTransferRequestStatusHistory,
+)
 from app.models.role import Role
 from app.models.room import Room
 from app.models.user import User
@@ -357,6 +361,182 @@ def seed_database(session: Session) -> None:
                         else None,
                     )
                 )
+    session.flush()
+
+    # Phase 7 transfer examples use the existing fictitious admissions. Terminal
+    # requests are historical and the two final definitions are the only open
+    # requests, one per admission. Re-running the seed never adds another current
+    # location or another status event.
+    active_med = session.exec(
+        select(Admission).where(Admission.admission_identifier == "ADM-DEMO-ACT-001")
+    ).one()
+    active_uci = session.exec(
+        select(Admission).where(Admission.admission_identifier == "ADM-DEMO-ACT-002")
+    ).one()
+    service_by_code = {
+        code: session.exec(select(HospitalService).where(HospitalService.code == code)).one()
+        for code in ("MED", "UCI", "UTI")
+    }
+
+    def bed(service_code: str, room_code: str, code: str) -> CareUnit:
+        return session.exec(
+            select(CareUnit)
+            .join(Room, Room.id == CareUnit.room_id)
+            .where(
+                Room.service_id == service_by_code[service_code].id,
+                Room.code == room_code,
+                CareUnit.code == code,
+            )
+        ).one()
+
+    uti_bed = bed("UTI", "UTI-A", "02")
+    uci_bed = bed("UCI", "UCI-A", "01")
+
+    def ensure_transfer(
+        *,
+        admission: Admission,
+        key: str,
+        origin_service: HospitalService,
+        destination_service: HospitalService,
+        origin_bed: CareUnit,
+        final_status: str,
+        history_statuses: tuple[str, ...],
+        requested_at: datetime,
+        mode: str = "reception_tray",
+        destination_bed: CareUnit | None = None,
+    ) -> PatientTransferRequest:
+        request_reason = f"Dato ficticio Fase 7 · {key}"
+        transfer = session.exec(
+            select(PatientTransferRequest).where(
+                PatientTransferRequest.admission_id == admission.id,
+                PatientTransferRequest.request_reason == request_reason,
+            )
+        ).first()
+        if transfer is None:
+            transfer = PatientTransferRequest(
+                admission_id=admission.id,
+                origin_service_id=origin_service.id,
+                destination_service_id=destination_service.id,
+                origin_care_unit_id=origin_bed.id,
+                destination_care_unit_id=destination_bed.id if destination_bed else None,
+                transfer_mode=mode,
+                status=final_status,
+                request_reason=request_reason,
+                requested_by_user_id=seed_actor.id,
+                requested_at=requested_at,
+                completed_at=requested_at if final_status in {
+                    "assigned_to_bed", "rejected", "returned", "cancelled"
+                } else None,
+                created_at=requested_at,
+                updated_at=requested_at,
+            )
+            session.add(transfer)
+            session.flush()
+        existing_history = session.exec(
+            select(PatientTransferRequestStatusHistory.id).where(
+                PatientTransferRequestStatusHistory.transfer_request_id == transfer.id
+            )
+        ).first()
+        if existing_history is None:
+            previous = None
+            for sequence, target_status in enumerate(history_statuses, start=1):
+                session.add(
+                    PatientTransferRequestStatusHistory(
+                        transfer_request_id=transfer.id,
+                        sequence_number=sequence,
+                        from_status=previous,
+                        to_status=target_status,
+                        reason=request_reason if sequence == 1 else f"Hito demo: {target_status}",
+                        changed_by_user_id=seed_actor.id,
+                        changed_at=requested_at,
+                        is_coverage=False,
+                    )
+                )
+                previous = target_status
+        return transfer
+
+    direct = ensure_transfer(
+        admission=active_med,
+        key="traslado directo completado",
+        origin_service=service_by_code["MED"],
+        destination_service=service_by_code["UTI"],
+        origin_bed=session.exec(
+            select(CareUnit)
+            .join(Room, Room.id == CareUnit.room_id)
+            .where(Room.service_id == service_by_code["MED"].id, Room.code == "A101", CareUnit.code == "01")
+        ).one(),
+        destination_bed=uti_bed,
+        mode="direct",
+        final_status="assigned_to_bed",
+        history_statuses=("requested", "pending_reception", "accepted", "assigned_to_bed"),
+        requested_at=datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc),
+    )
+    current_med = session.exec(
+        select(PatientLocationHistory).where(
+            PatientLocationHistory.admission_id == active_med.id,
+            PatientLocationHistory.ended_at.is_(None),
+        )
+    ).first()
+    if current_med is None or current_med.care_unit_id != uti_bed.id:
+        moved_at = datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc)
+        if current_med is not None:
+            current_med.ended_at = moved_at
+            current_med.ended_by_user_id = seed_actor.id
+            session.add(current_med)
+            session.flush()
+        session.add(
+            PatientLocationHistory(
+                admission_id=active_med.id,
+                care_unit_id=uti_bed.id,
+                started_at=moved_at,
+                reason=f"Traslado demo {direct.id}",
+                assigned_by_user_id=seed_actor.id,
+            )
+        )
+        session.flush()
+
+    terminal_definitions = (
+        ("traslado rechazado", "rejected", ("requested", "pending_reception", "rejected"), 7),
+        (
+            "traslado devuelto",
+            "returned",
+            ("requested", "pending_reception", "accepted", "pending_bed", "returned"),
+            8,
+        ),
+        ("traslado cancelado", "cancelled", ("requested", "pending_reception", "cancelled"), 9),
+    )
+    for key, final_status, history_statuses, day in terminal_definitions:
+        ensure_transfer(
+            admission=active_med,
+            key=key,
+            origin_service=service_by_code["UTI"],
+            destination_service=service_by_code["MED"],
+            origin_bed=uti_bed,
+            final_status=final_status,
+            history_statuses=history_statuses,
+            requested_at=datetime(2026, 8, day, 9, 0, tzinfo=timezone.utc),
+        )
+
+    ensure_transfer(
+        admission=active_med,
+        key="traslado pendiente recepción",
+        origin_service=service_by_code["UTI"],
+        destination_service=service_by_code["MED"],
+        origin_bed=uti_bed,
+        final_status="pending_reception",
+        history_statuses=("requested", "pending_reception"),
+        requested_at=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc),
+    )
+    ensure_transfer(
+        admission=active_uci,
+        key="traslado aceptado pendiente de cama",
+        origin_service=service_by_code["UCI"],
+        destination_service=service_by_code["MED"],
+        origin_bed=uci_bed,
+        final_status="pending_bed",
+        history_statuses=("requested", "pending_reception", "accepted", "pending_bed"),
+        requested_at=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
+    )
     session.commit()
 
 def main() -> None:

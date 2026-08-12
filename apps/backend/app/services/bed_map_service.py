@@ -3,6 +3,7 @@ from datetime import date
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from app.models.admission import Admission
@@ -12,12 +13,14 @@ from app.models.common import utc_now
 from app.models.hospital_service import HospitalService
 from app.models.patient import Patient
 from app.models.patient_location_history import PatientLocationHistory
+from app.models.patient_transfer_request import PatientTransferRequest
 from app.models.room import Room
 from app.schemas.bed_map import (
     BedMapAdmission,
     BedMapBed,
     BedMapLayout,
     BedMapOccupancy,
+    BedMapPendingTransfer,
     BedMapPatient,
     BedMapResponse,
     BedMapRoom,
@@ -84,8 +87,16 @@ def get_bed_map(session: Session, service_id: uuid.UUID) -> BedMapResponse:
     generated_at = utc_now()
 
     if rooms:
+        destination_service = aliased(HospitalService)
         rows = session.exec(
-            select(CareUnit, CareUnitLayoutPosition, Admission, Patient)
+            select(
+                CareUnit,
+                CareUnitLayoutPosition,
+                Admission,
+                Patient,
+                PatientTransferRequest,
+                destination_service,
+            )
             .outerjoin(
                 CareUnitLayoutPosition,
                 CareUnitLayoutPosition.care_unit_id == CareUnit.id,
@@ -105,6 +116,17 @@ def get_bed_map(session: Session, service_id: uuid.UUID) -> BedMapResponse:
                 ),
             )
             .outerjoin(Patient, Patient.id == Admission.patient_id)
+            .outerjoin(
+                PatientTransferRequest,
+                and_(
+                    PatientTransferRequest.admission_id == Admission.id,
+                    PatientTransferRequest.status.in_(("pending_reception", "pending_bed")),
+                ),
+            )
+            .outerjoin(
+                destination_service,
+                destination_service.id == PatientTransferRequest.destination_service_id,
+            )
             .where(
                 CareUnit.room_id.in_(list(rooms_by_id)),
                 CareUnit.is_active.is_(True),
@@ -112,7 +134,7 @@ def get_bed_map(session: Session, service_id: uuid.UUID) -> BedMapResponse:
             )
         ).all()
 
-        for care_unit, layout, admission, patient in rows:
+        for care_unit, layout, admission, patient, pending_transfer, destination in rows:
             occupancy = None
             if admission is not None and patient is not None:
                 occupancy = BedMapOccupancy(
@@ -128,6 +150,18 @@ def get_bed_map(session: Session, service_id: uuid.UUID) -> BedMapResponse:
                         admission_identifier=admission.admission_identifier,
                         status="active",
                         admitted_at=admission.admitted_at,
+                    ),
+                    pending_transfer=(
+                        BedMapPendingTransfer(
+                            id=pending_transfer.id,
+                            status=pending_transfer.status,
+                            destination_service_id=destination.id,
+                            destination_service_code=destination.code,
+                            destination_service_name=destination.name,
+                            requested_at=pending_transfer.requested_at,
+                        )
+                        if pending_transfer is not None and destination is not None
+                        else None
                     ),
                 )
             beds_by_room[care_unit.room_id].append(

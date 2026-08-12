@@ -275,11 +275,11 @@ def test_soft_delete_respects_active_dependencies_and_filter(client) -> None:
     auth = authenticate(client)
     headers = csrf_headers(auth)
     structure = client.get("/api/v1/hospital/structure").json()
-    intensive_care = next(item for item in structure["items"] if item["code"] == "UCI")
-    room = intensive_care["rooms"][0]
+    target_service = next(item for item in structure["items"] if item["code"] == "CIR")
+    room = target_service["rooms"][0]
 
     blocked_service = client.patch(
-        f"/api/v1/hospital/services/{intensive_care['id']}",
+        f"/api/v1/hospital/services/{target_service['id']}",
         headers=headers,
         json={"is_active": False},
     )
@@ -301,7 +301,7 @@ def test_soft_delete_respects_active_dependencies_and_filter(client) -> None:
     assert room_response.status_code == 200
 
     service_response = client.patch(
-        f"/api/v1/hospital/services/{intensive_care['id']}",
+        f"/api/v1/hospital/services/{target_service['id']}",
         headers=headers,
         json={"is_active": False},
     )
@@ -310,21 +310,28 @@ def test_soft_delete_respects_active_dependencies_and_filter(client) -> None:
     active_codes = {
         item["code"] for item in client.get("/api/v1/hospital/structure").json()["items"]
     }
-    assert "UCI" not in active_codes
+    assert "CIR" not in active_codes
     all_codes = {
         item["code"]
         for item in client.get(
             "/api/v1/hospital/structure?include_inactive=true"
         ).json()["items"]
     }
-    assert "UCI" in all_codes
+    assert "CIR" in all_codes
 
 
 def test_only_administrator_can_purge_inactive_structure(client, db_session) -> None:
     manager_auth = authenticate(client, "jefatura")
     manager_headers = csrf_headers(manager_auth)
     structure = client.get("/api/v1/hospital/structure").json()
-    care_unit = next(item for item in structure["items"] if item["code"] == "MED")["rooms"][0]["care_units"][0]
+    room = next(item for item in structure["items"] if item["code"] == "MED")["rooms"][0]
+    created = client.post(
+        "/api/v1/hospital/care-units",
+        headers=manager_headers,
+        json={"room_id": room["id"], "code": "PURGE-DEMO", "label": "Cama para purga"},
+    )
+    assert created.status_code == 201, created.text
+    care_unit = created.json()
     assert client.patch(
         f"/api/v1/hospital/care-units/{care_unit['id']}",
         headers=manager_headers,

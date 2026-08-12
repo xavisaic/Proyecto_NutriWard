@@ -134,6 +134,14 @@ export interface BedMapBed {
   occupancy: {
     patient: BedMapPatient
     admission: BedMapAdmission
+    pending_transfer: {
+      id: string
+      status: 'pending_reception' | 'pending_bed'
+      destination_service_id: string
+      destination_service_code: string
+      destination_service_name: string
+      requested_at: string
+    } | null
   } | null
 }
 
@@ -233,6 +241,65 @@ export interface PotentialPatientMatches {
 export interface AdmissionList {
   items: Admission[]
   total: number
+}
+
+export type TransferMode = 'direct' | 'reception_tray'
+export type TransferStatus =
+  | 'requested'
+  | 'pending_reception'
+  | 'accepted'
+  | 'pending_bed'
+  | 'assigned_to_bed'
+  | 'rejected'
+  | 'returned'
+  | 'cancelled'
+
+export interface TransferRequest {
+  id: string
+  admission_id: string
+  transfer_mode: TransferMode
+  status: TransferStatus
+  request_reason: string | null
+  requested_by_user_id: string
+  requested_at: string
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+  origin_service: Pick<HospitalService, 'id' | 'code' | 'name'>
+  destination_service: Pick<HospitalService, 'id' | 'code' | 'name'>
+  origin_care_unit_id: string
+  destination_care_unit_id: string | null
+  current_origin_location: {
+    care_unit_id: string
+    care_unit_code: string
+    care_unit_label: string | null
+    room_id: string
+    room_code: string
+    room_name: string
+    service_id: string
+    service_code: string
+    service_name: string
+  } | null
+  patient: BedMapPatient
+  admission: BedMapAdmission
+  has_coverage_support: boolean
+  status_history: Array<{
+    id: string
+    sequence_number: number
+    from_status: TransferStatus | null
+    to_status: TransferStatus
+    reason: string | null
+    changed_by_user_id: string
+    changed_at: string
+    is_coverage: boolean
+  }>
+}
+
+export interface TransferRequestList {
+  items: TransferRequest[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export class ApiError extends Error {

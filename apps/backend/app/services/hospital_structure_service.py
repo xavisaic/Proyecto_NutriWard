@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.models.care_unit import CareUnit
@@ -11,6 +11,8 @@ from app.models.care_unit_layout_position import CareUnitLayoutPosition
 from app.models.common import utc_now
 from app.models.hospital_service import HospitalService
 from app.models.nutritionist_service_assignment import NutritionistServiceAssignment
+from app.models.patient_location_history import PatientLocationHistory
+from app.models.patient_transfer_request import OPEN_TRANSFER_STATUSES, PatientTransferRequest
 from app.models.room import Room
 from app.schemas.hospital import (
     CareUnitCreate,
@@ -294,6 +296,17 @@ def update_service(
         excluding_id=service.id,
     )
     if changes.get("is_active") is False and service.is_active:
+        open_transfer = session.exec(
+            select(PatientTransferRequest.id).where(
+                PatientTransferRequest.status.in_(OPEN_TRANSFER_STATUSES),
+                or_(
+                    PatientTransferRequest.origin_service_id == service.id,
+                    PatientTransferRequest.destination_service_id == service.id,
+                ),
+            )
+        ).first()
+        if open_transfer is not None:
+            raise _conflict("No se puede inactivar un servicio con traslados abiertos.")
         active_room = session.exec(
             select(Room).where(Room.service_id == service.id, Room.is_active.is_(True))
         ).first()
@@ -446,6 +459,15 @@ def update_care_unit(
         code=next_code,
         excluding_id=care_unit.id,
     )
+    if changes.get("is_active") is False and care_unit.is_active:
+        current_occupancy = session.exec(
+            select(PatientLocationHistory.id).where(
+                PatientLocationHistory.care_unit_id == care_unit.id,
+                PatientLocationHistory.ended_at.is_(None),
+            )
+        ).first()
+        if current_occupancy is not None:
+            raise _conflict("No se puede inactivar una cama con una ubicación vigente.")
 
     before_state = _snapshot(care_unit, CARE_UNIT_FIELDS)
     for field, value in changes.items():
@@ -532,6 +554,18 @@ def purge_care_unit(
         raise _conflict(
             "La ubicación debe estar inactiva antes de eliminarla definitivamente."
         )
+    transfer_reference = session.exec(
+        select(PatientTransferRequest.id).where(
+            or_(
+                PatientTransferRequest.origin_care_unit_id == care_unit.id,
+                PatientTransferRequest.destination_care_unit_id == care_unit.id,
+            )
+        )
+    ).first()
+    if transfer_reference is not None:
+        raise _conflict(
+            "No se puede eliminar una cama referenciada por el historial de traslados."
+        )
     before_state = _snapshot(care_unit, CARE_UNIT_FIELDS)
     layout = session.exec(
         select(CareUnitLayoutPosition).where(CareUnitLayoutPosition.care_unit_id == care_unit.id)
@@ -585,6 +619,18 @@ def purge_service(
     service = _get_service(session, service_id)
     if service.is_active:
         raise _conflict("El servicio debe estar inactivo antes de eliminarlo definitivamente.")
+    transfer_reference = session.exec(
+        select(PatientTransferRequest.id).where(
+            or_(
+                PatientTransferRequest.origin_service_id == service.id,
+                PatientTransferRequest.destination_service_id == service.id,
+            )
+        )
+    ).first()
+    if transfer_reference is not None:
+        raise _conflict(
+            "No se puede eliminar un servicio referenciado por el historial de traslados."
+        )
     if session.exec(select(Room).where(Room.service_id == service.id)).first() is not None:
         raise _conflict("No se puede eliminar un servicio que todavía contiene salas.")
     if session.exec(

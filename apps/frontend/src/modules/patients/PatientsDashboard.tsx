@@ -39,6 +39,7 @@ import {
   PatientList,
   PotentialPatientMatches,
 } from '../../shared/services/api'
+import { MovePatientDialog } from '../transfers/Transfers'
 
 interface PatientsDashboardProps {
   canMutate: boolean
@@ -741,6 +742,7 @@ export function PatientsDashboard({
   const [createOpen, setCreateOpen] = useState(false)
   const [identityOpen, setIdentityOpen] = useState(false)
   const [locationOpen, setLocationOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -1015,8 +1017,12 @@ export function PatientsDashboard({
                         )}
                         {canMutate && (
                           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                            <Button variant="outlined" startIcon={<BedDouble size={17} />} onClick={() => setLocationOpen(true)}>
-                              {selected.active_admission.current_location ? 'Trasladar de cama' : 'Asignar cama inicial'}
+                            <Button
+                              variant="outlined"
+                              startIcon={<BedDouble size={17} />}
+                              onClick={() => selected.active_admission?.current_location ? setMoveOpen(true) : setLocationOpen(true)}
+                            >
+                              {selected.active_admission.current_location ? 'Mover paciente' : 'Asignar cama inicial'}
                             </Button>
                             <Button color="error" startIcon={<LogOut size={17} />} onClick={() => void endAdmission()}>
                               Terminar hospitalización
@@ -1083,6 +1089,19 @@ export function PatientsDashboard({
           onClose={() => setLocationOpen(false)}
           onUpdated={() => {
             setLocationOpen(false)
+            void load()
+          }}
+        />
+      )}
+      {canMutate && selected?.active_admission?.current_location && (
+        <MovePatientDialog
+          open={moveOpen}
+          admission={selected.active_admission}
+          services={structure?.items ?? []}
+          csrfToken={csrfToken}
+          onClose={() => setMoveOpen(false)}
+          onCompleted={() => {
+            setMoveOpen(false)
             void load()
           }}
         />

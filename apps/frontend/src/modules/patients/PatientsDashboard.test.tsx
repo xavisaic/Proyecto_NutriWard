@@ -121,6 +121,18 @@ function mockApi(patient: any = nnPatient, activeItems: any[] = [admission]) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
     if (url.includes('/hospital/structure')) return json(structure)
+    if (url.includes('/bed-map?service_id=')) return json({
+      generated_at: '2026-08-12T12:00:00Z',
+      service: { id: structure.items[0].id, code: 'MED', name: 'Medicina' },
+      rooms: [{
+        id: structure.items[0].rooms[0].id,
+        code: 'A101', name: 'Sala A101', floor: 'Piso 1',
+        beds: [
+          { id: location.care_unit_id, code: '01', label: 'Cama 01', status: 'occupied', layout: null, occupancy: {} },
+          { id: '20000000-0000-0000-0000-000000000002', code: '02', label: 'Cama 02', status: 'free', layout: null, occupancy: null },
+        ],
+      }],
+    })
     if (url.includes('/admissions/active')) return json({ items: activeItems, total: activeItems.length })
     if (url.includes('/patients/potential-matches')) return json({ items: [], total: 0 })
     if (url.includes(`/patients/${patient.id}`)) return json(patient)
@@ -164,7 +176,7 @@ describe('pacientes', () => {
 
     expect(await screen.findByText('ADM-20260731-ABC123')).toBeInTheDocument()
     expect(screen.getAllByText(/Medicina · Sala A101 · Cama 01/).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Trasladar de cama' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mover paciente' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Terminar hospitalización' })).toBeInTheDocument()
   })
 
@@ -293,19 +305,21 @@ describe('pacientes', () => {
     expect(screen.getByText('N.º ficha: URG-001')).toBeInTheDocument()
   })
 
-  it('distingue cama ocupada y disponible al trasladar', async () => {
+  it('permite un cambio interno seleccionando exclusivamente una cama libre', async () => {
     const fetchMock = mockApi()
     render(<PatientsDashboard canMutate csrfToken="csrf-demo" />)
     await userEvent.click(await screen.findByText(`Paciente NN · ${nnPatient.temporary_identifier}`))
-    await userEvent.click(await screen.findByRole('button', { name: 'Trasladar de cama' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Mover paciente' }))
     const dialog = await screen.findByRole('dialog', { hidden: true })
-    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Cama' }))
-
-    expect(await screen.findByText(/Cama 01 — Ocupada|Cama 01 — Ubicación actual/)).toBeInTheDocument()
-    expect(screen.getByText(/Cama 02 — Disponible/)).toBeInTheDocument()
-    await userEvent.click(screen.getByText(/Cama 02 — Disponible/))
-    await userEvent.type(within(dialog).getByLabelText('Motivo'), 'Traslado de prueba')
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirmar traslado' }))
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Servicio destino' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'MED · Medicina' }))
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Cama destino' })).toBeEnabled())
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Cama destino' }))
+    expect(screen.queryByRole('option', { name: /Cama 01/ })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('option', { name: /Cama 02/ }))
+    await userEvent.type(within(dialog).getByRole('textbox', { name: /Motivo del traslado/ }), 'Traslado de prueba')
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Confirmo el cambio operacional indicado' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cambiar cama' }))
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(`/admissions/${admission.id}/location`),
@@ -567,7 +581,7 @@ describe('pacientes', () => {
 
     expect(await screen.findByText('ADM-20260731-ABC123')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Identificar paciente' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Trasladar de cama' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Mover paciente' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Terminar hospitalización' })).not.toBeInTheDocument()
   })
 })

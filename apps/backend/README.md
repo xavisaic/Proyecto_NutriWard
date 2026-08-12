@@ -1,4 +1,4 @@
-# Backend (Fase 5)
+# Backend (Fase 7)
 
 ## Ejecución local
 
@@ -68,12 +68,27 @@ python -m pytest
 - `PATCH /api/v1/admissions/{admission_id}/status`
 - `GET|POST /api/v1/admissions/{admission_id}/location`
 - `GET /api/v1/admissions/{admission_id}/location-history`
+- `POST /api/v1/transfer-requests`
+- `GET /api/v1/transfer-requests/reception-tray`
+- `GET /api/v1/transfer-requests/{transfer_request_id}`
+- `GET /api/v1/admissions/{admission_id}/transfer-requests`
+- `POST /api/v1/transfer-requests/{transfer_request_id}/accept`
+- `POST /api/v1/transfer-requests/{transfer_request_id}/assign-bed`
+- `POST /api/v1/transfer-requests/{transfer_request_id}/reject|return|cancel`
 
 ## Tablas de aplicación
 
 `users`, `roles`, `user_roles`, `audit_logs`, `nutritionist_service_assignments`,
 `services`, `rooms`, `care_units`, `care_unit_layout_positions`, `patients`,
-`admissions`, `admission_status_history` y `patient_location_history`.
+`admissions`, `admission_status_history`, `patient_location_history`,
+`patient_transfer_requests` y `patient_transfer_request_status_history`.
+
+Las lecturas operacionales de traslados admiten los cuatro roles. Sólo `jefatura` y
+`nutricionista` pueden mutar; `administrador` y `alimentacion` son de sólo lectura.
+Cada transición conserva actor, UTC, secuencia, motivo u observación cuando se informa,
+cobertura y `admission_id` en auditoría. La ubicación vigente es la única fuente de
+ocupación. El motivo inicial es opcional; rechazo, devolución y cancelación sí exigen
+motivo.
 
 Las mutaciones hospitalarias requieren rol `jefatura` o `administrador` y token CSRF.
 La inactivación se realiza con `PATCH {"is_active": false}`; no existe borrado físico

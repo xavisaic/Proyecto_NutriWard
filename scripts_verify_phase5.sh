@@ -8,10 +8,10 @@ echo "[1/8] backend tests"
 (cd apps/backend && python -m pytest)
 
 echo "[2/8] database metadata"
-PYTHONPATH=apps/backend python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected == actual, (expected-actual, actual-expected)"
+PYTHONPATH=apps/backend python -c "from app.db.base import get_metadata; expected={'audit_logs','nutritionist_service_assignments','roles','users','user_roles','services','rooms','care_units','care_unit_layout_positions','patients','admissions','admission_status_history','patient_location_history'}; actual=set(get_metadata().tables); assert expected <= actual, expected-actual"
 
 echo "[3/8] migration chain and reversible SQL"
-(cd apps/backend && alembic heads | grep -q "20260805_0008" && alembic history | grep -q "20260731_0006" && alembic upgrade head --sql >/dev/null && alembic downgrade 20260731_0006:20260728_0005 --sql >/dev/null)
+(cd apps/backend && test "$(alembic heads | wc -l | tr -d ' ')" -eq 1 && alembic history | grep -q "20260731_0006" && alembic upgrade head --sql >/dev/null && alembic downgrade 20260731_0006:20260728_0005 --sql >/dev/null)
 
 echo "[4/8] idempotent Phase 5 seeds"
 PYTHONPATH=apps/backend python -c "from sqlalchemy.pool import StaticPool; from sqlmodel import Session,create_engine,func,select; from app.db.base import get_metadata; from app.db.seed import seed_database; from app.models.patient import Patient; from app.models.admission import Admission; e=create_engine('sqlite://',connect_args={'check_same_thread':False},poolclass=StaticPool); get_metadata().create_all(e); s=Session(e); seed_database(s); seed_database(s); assert s.exec(select(func.count()).select_from(Patient)).one()==4; assert s.exec(select(func.count()).select_from(Admission)).one()==4"
