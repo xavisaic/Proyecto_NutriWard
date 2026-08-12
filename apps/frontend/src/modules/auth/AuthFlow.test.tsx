@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Router } from 'wouter'
 import { memoryLocation } from 'wouter/memory-location'
 
+import { AppProviders } from '../../app/AppProviders'
 import { AppRouter } from '../../app/router'
-import { AuthProvider } from './AuthContext'
 
 const demoSession = {
   user: {
@@ -27,16 +27,17 @@ const emptyAdmissions = { items: [], total: 0 }
 function renderApp(path = '/') {
   const { hook } = memoryLocation({ path })
   return render(
-    <Router hook={hook}>
-      <AuthProvider>
+    <AppProviders>
+      <Router hook={hook}>
         <AppRouter />
-      </AuthProvider>
-    </Router>,
+      </Router>
+    </AppProviders>,
   )
 }
 
 afterEach(() => {
   cleanup()
+  window.localStorage.clear()
   vi.restoreAllMocks()
 })
 
@@ -88,10 +89,10 @@ describe('flujo de autenticación', () => {
 
     renderApp('/')
 
-    expect(await screen.findByText('administrador')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText(demoSession.user.email)).toBeInTheDocument())
+    expect((await screen.findAllByText('administrador')).length).toBeGreaterThan(0)
+    await waitFor(() => expect(screen.getAllByText(demoSession.user.email).length).toBeGreaterThan(0))
     expect(screen.getByRole('heading', { name: 'Estructura hospitalaria' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('tab', { name: 'Pacientes' }))
+    await userEvent.click(screen.getByRole('button', { name: /Pacientes/ }))
     expect(await screen.findByRole('heading', { name: 'Pacientes' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Crear paciente' })).not.toBeInTheDocument()
   })
@@ -134,7 +135,7 @@ describe('flujo de autenticación', () => {
     })
     renderApp('/')
     expect(await screen.findByRole('heading', { name: 'Pacientes' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Pacientes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Pacientes/ })).toHaveAttribute('aria-current', 'page')
 
     cleanup()
     vi.restoreAllMocks()
@@ -162,8 +163,8 @@ describe('flujo de autenticación', () => {
     })
     renderApp('/')
     expect(await screen.findByRole('heading', { name: 'Mapa de camas' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Mapa de camas' })).toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Pacientes' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Mapa de camas/ })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('button', { name: /Pacientes/ })).not.toBeInTheDocument()
   })
 
   it('muestra el módulo Mapa de camas a los cuatro roles autorizados', async () => {
@@ -190,11 +191,12 @@ describe('flujo de autenticación', () => {
         })
       })
       renderApp('/')
-      const mapTab = await screen.findByRole('tab', { name: 'Mapa de camas' })
-      await userEvent.click(mapTab)
+      const mapItem = await screen.findByRole('button', { name: /Mapa de camas/ })
+      await userEvent.click(mapItem)
       expect(await screen.findByRole('heading', { name: 'Mapa de camas' })).toBeInTheDocument()
+      expect(mapItem).toHaveAttribute('aria-current', 'page')
       if (role === 'alimentacion') {
-        expect(screen.queryByRole('tab', { name: 'Pacientes' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Pacientes/ })).not.toBeInTheDocument()
       }
       cleanup()
       vi.restoreAllMocks()

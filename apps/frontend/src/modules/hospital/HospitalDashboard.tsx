@@ -25,6 +25,7 @@ import {
   Typography,
 } from '@mui/material'
 import Grid from '@mui/material/Grid2'
+import { alpha } from '@mui/material/styles'
 import {
   Activity,
   BedDouble,
@@ -788,18 +789,20 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
             <Card
               key={service.id}
               variant="outlined"
-              sx={{
+              sx={(theme) => ({
                 opacity: service.is_active ? 1 : 0.66,
                 overflow: 'hidden',
                 borderColor: isExpanded ? 'primary.light' : 'divider',
-                boxShadow: isExpanded ? '0 10px 30px rgba(18, 107, 91, 0.08)' : 'none',
+                boxShadow: isExpanded ? theme.shadows[1] : 'none',
                 transition: 'border-color 180ms ease, box-shadow 180ms ease',
-              }}
+              })}
             >
               <Stack
                 direction={{ xs: 'column', md: 'row' }}
                 alignItems={{ xs: 'stretch', md: 'center' }}
-                sx={{ bgcolor: isExpanded ? 'rgba(18, 107, 91, 0.045)' : 'background.paper' }}
+                sx={(theme) => ({
+                  bgcolor: isExpanded ? alpha(theme.palette.primary.main, 0.08) : 'background.paper',
+                })}
               >
                 <Button
                   color="inherit"
@@ -828,7 +831,7 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                         height: 40,
                         borderRadius: 2,
                         color: 'primary.main',
-                        bgcolor: 'rgba(18, 107, 91, 0.1)',
+                        bgcolor: 'action.selected',
                         flexShrink: 0,
                       }}
                     >
@@ -960,7 +963,9 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                             <Stack direction="row" justifyContent="space-between" gap={1}>
                               <Box sx={{ minWidth: 0 }}>
                                 <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-                                  <DoorOpen size={18} color="#126b5b" aria-hidden="true" />
+                                  <Box sx={{ color: 'primary.main', display: 'flex' }}>
+                                    <DoorOpen size={18} color="currentColor" aria-hidden="true" />
+                                  </Box>
                                   <Typography fontWeight={800}>{room.name}</Typography>
                                   <Chip label={room.code} size="small" variant="outlined" />
                                   {!room.is_active && <Chip label="Inactiva" size="small" />}
@@ -1059,9 +1064,7 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                                       maxWidth: { sm: 210 },
                                       border: '1px solid',
                                       borderColor: careUnit.is_active ? 'primary.light' : 'divider',
-                                      bgcolor: careUnit.is_active
-                                        ? 'rgba(18, 107, 91, 0.055)'
-                                        : 'action.disabledBackground',
+                                      bgcolor: careUnit.is_active ? 'action.hover' : 'action.disabledBackground',
                                       borderRadius: 2,
                                       px: 1.25,
                                       py: 1.15,

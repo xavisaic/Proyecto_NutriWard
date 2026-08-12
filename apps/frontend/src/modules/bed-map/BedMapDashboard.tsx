@@ -15,13 +15,13 @@ import {
   MenuItem,
   Paper,
   Select,
-  Snackbar,
   Stack,
   Typography,
 } from '@mui/material'
-import { ArrowRightLeft, CheckCircle2, CircleAlert, RefreshCw, UserRound, X } from 'lucide-react'
+import { ArrowRightLeft, BedDouble, CheckCircle2, CircleAlert, RefreshCw, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { FeedbackSnackbar, LoadingState, PageHeader, StatCard, StatusBadge } from '../../shared/components'
 import {
   ApiError,
   apiRequest,
@@ -133,11 +133,13 @@ export function classifyRoomBeds(room: BedMapRoom) {
 function BedBlock({
   bed,
   positioned = false,
+  selected = false,
   onSelect,
   registerTrigger,
 }: {
   bed: BedMapBed
   positioned?: boolean
+  selected?: boolean
   onSelect: (bed: BedMapBed) => void
   registerTrigger: (bedId: string, element: HTMLButtonElement | null) => void
 }) {
@@ -149,6 +151,7 @@ function BedBlock({
     <ButtonBase
       ref={(element) => registerTrigger(bed.id, element)}
       aria-label={accessibleBedLabel(bed)}
+      aria-pressed={occupied ? selected : undefined}
       onClick={() => occupied && onSelect(bed)}
       style={positioned && layout ? {
         gridColumn: `${layout.grid_x + 1} / span ${layout.width}`,
@@ -160,10 +163,18 @@ function BedBlock({
         minHeight: 116,
         textAlign: 'left',
         border: '2px solid',
-        borderColor: occupied ? 'warning.dark' : 'success.dark',
+        borderColor: selected ? 'primary.main' : occupied ? 'warning.dark' : 'success.dark',
         borderRadius: 2,
-        bgcolor: occupied ? '#fff8e1' : '#edf7ed',
-        boxShadow: pendingTransfer ? 'inset 5px 0 0 #6d28d9' : 'none',
+        bgcolor: (theme) => selected
+          ? theme.nutriward.colors.operational.bedSelected.background
+          : occupied
+            ? theme.nutriward.colors.operational.bedOccupied.background
+            : theme.nutriward.colors.operational.bedFree.background,
+        boxShadow: (theme) => pendingTransfer
+          ? `inset 5px 0 0 ${theme.nutriward.colors.transfer.main}${selected ? `, 0 0 0 3px ${theme.nutriward.colors.primary.light}` : ''}`
+          : selected
+            ? `0 0 0 3px ${theme.nutriward.colors.primary.light}`
+            : 'none',
         p: 1.5,
         alignSelf: 'stretch',
         ...(positioned && layout
@@ -173,6 +184,14 @@ function BedBlock({
             }
           : {}),
         '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+        '&:hover': {
+          borderColor: selected ? 'primary.dark' : occupied ? 'warning.main' : 'success.main',
+          transform: 'translateY(-1px)',
+        },
+        transition: (theme) => theme.transitions.create(
+          ['background-color', 'border-color', 'box-shadow', 'transform'],
+          { duration: theme.transitions.duration.short },
+        ),
       }}
     >
       <Stack height="100%" spacing={0.75}>
@@ -199,24 +218,21 @@ function BedBlock({
             </Typography>
             {pendingTransfer && (
               <Stack spacing={0.25}>
-                <Chip
-                  size="small"
+                <StatusBadge
                   icon={<ArrowRightLeft size={15} aria-hidden="true" />}
                   label={pendingTransferLabel(pendingTransfer)}
                   title={`${pendingTransferLabel(pendingTransfer)} · ${pendingTransfer.destination_service_name}`}
+                  tone="transfer"
                   sx={{
                     alignSelf: 'flex-start',
                     height: 'auto',
                     maxWidth: '100%',
-                    border: '1px solid #8b5cf6',
-                    bgcolor: '#ede9fe',
-                    color: '#5b21b6',
                     fontWeight: 800,
-                    '& .MuiChip-icon': { color: '#6d28d9', ml: 0.75 },
+                    '& .MuiChip-icon': { ml: 0.75 },
                     '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 },
                   }}
                 />
-                <Typography variant="caption" sx={{ color: '#5b21b6', fontWeight: 650 }}>
+                <Typography variant="caption" sx={(theme) => ({ color: theme.nutriward.colors.transfer.dark, fontWeight: 650 })}>
                   {transferElapsed(pendingTransfer.requested_at)}
                 </Typography>
               </Stack>
@@ -234,10 +250,12 @@ function BedBlock({
 
 function BedCollection({
   beds,
+  selectedBedId,
   onSelect,
   registerTrigger,
 }: {
   beds: BedMapBed[]
+  selectedBedId?: string
   onSelect: (bed: BedMapBed) => void
   registerTrigger: (bedId: string, element: HTMLButtonElement | null) => void
 }) {
@@ -250,7 +268,7 @@ function BedCollection({
       }}
     >
       {beds.map((bed) => (
-        <BedBlock key={bed.id} bed={bed} onSelect={onSelect} registerTrigger={registerTrigger} />
+        <BedBlock key={bed.id} bed={bed} selected={bed.id === selectedBedId} onSelect={onSelect} registerTrigger={registerTrigger} />
       ))}
     </Box>
   )
@@ -258,10 +276,12 @@ function BedCollection({
 
 function RoomMap({
   room,
+  selectedBedId,
   onSelect,
   registerTrigger,
 }: {
   room: BedMapRoom
+  selectedBedId?: string
   onSelect: (room: BedMapRoom, bed: BedMapBed) => void
   registerTrigger: (bedId: string, element: HTMLButtonElement | null) => void
 }) {
@@ -301,6 +321,7 @@ function RoomMap({
                       key={bed.id}
                       bed={bed}
                       positioned
+                      selected={bed.id === selectedBedId}
                       onSelect={(selected) => onSelect(room, selected)}
                       registerTrigger={registerTrigger}
                     />
@@ -319,6 +340,7 @@ function RoomMap({
                 </Typography>
                 <BedCollection
                   beds={groups.conflicting}
+                  selectedBedId={selectedBedId}
                   onSelect={(bed) => onSelect(room, bed)}
                   registerTrigger={registerTrigger}
                 />
@@ -333,6 +355,7 @@ function RoomMap({
                 </Typography>
                 <BedCollection
                   beds={groups.unpositioned}
+                  selectedBedId={selectedBedId}
                   onSelect={(bed) => onSelect(room, bed)}
                   registerTrigger={registerTrigger}
                 />
@@ -616,6 +639,13 @@ export function BedMapDashboard({
       : bedMap.rooms.filter((room) => room.id === selectedRoomId)
   }, [bedMap, selectedRoomId])
 
+  const operationalSummary = useMemo(() => {
+    const beds = bedMap?.rooms.flatMap((room) => room.beds) ?? []
+    const occupied = beds.filter((bed) => bed.status === 'occupied' && bed.occupancy).length
+    const transfers = beds.filter((bed) => bed.occupancy?.pending_transfer).length
+    return { total: beds.length, occupied, free: beds.length - occupied, transfers }
+  }, [bedMap])
+
   function changeService(nextServiceId: string) {
     requestSequence.current += 1
     abortController.current?.abort()
@@ -635,29 +665,50 @@ export function BedMapDashboard({
   }
 
   return (
-    <Stack spacing={3}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}>
-        <Box>
-          <Typography component="h1" variant="h4" fontWeight={850}>Mapa de camas</Typography>
-          <Typography color="text.secondary">Estado operacional actual por servicio y sala.</Typography>
+    <Stack spacing={{ xs: 2.5, md: 3 }}>
+      <PageHeader
+        eyebrow="Operación hospitalaria"
+        title="Mapa de camas"
+        description="Estado actual por servicio y sala, con traslados pendientes y actualización automática."
+        actions={(
+          <Stack direction="row" alignItems="center" spacing={1.5} justifyContent={{ xs: 'space-between', sm: 'flex-end' }}>
+            <Box sx={{ textAlign: { sm: 'right' } }} aria-live="polite">
+              {refreshing && (
+                <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="flex-end">
+                  <CircularProgress size={16} aria-label="Actualizando mapa" />
+                  <Typography variant="caption" color="text.secondary">Actualizando</Typography>
+                </Stack>
+              )}
+              {!refreshing && bedMap && <Typography variant="caption" color="text.secondary">{updatedAgo(bedMap.generated_at, clock)}</Typography>}
+            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshCw size={17} aria-hidden="true" />}
+              disabled={!selectedServiceId || refreshing}
+              onClick={() => void loadMap(selectedServiceId, Boolean(bedMap))}
+            >
+              Actualizar
+            </Button>
+          </Stack>
+        )}
+      />
+
+      {bedMap && (
+        <Box
+          aria-label="Resumen del mapa"
+          sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5 }}
+        >
+          <StatCard label="Camas activas" value={operationalSummary.total} icon={<BedDouble size={20} />} />
+          <StatCard label="Libres" value={operationalSummary.free} icon={<CheckCircle2 size={20} />} tone="success" />
+          <StatCard label="Ocupadas" value={operationalSummary.occupied} icon={<UserRound size={20} />} tone="warning" />
+          <StatCard label="Con traslado" value={operationalSummary.transfers} icon={<ArrowRightLeft size={20} />} tone="secondary" />
         </Box>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          {refreshing && <CircularProgress size={18} aria-label="Actualizando mapa" />}
-          {bedMap && <Typography variant="caption" color="text.secondary">{updatedAgo(bedMap.generated_at, clock)}</Typography>}
-          <Button
-            variant="outlined"
-            startIcon={<RefreshCw size={17} />}
-            disabled={!selectedServiceId || refreshing}
-            onClick={() => void loadMap(selectedServiceId, Boolean(bedMap))}
-          >
-            Actualizar
-          </Button>
-        </Stack>
-      </Stack>
+      )}
 
       <Card variant="outlined">
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <FormControl fullWidth>
               <InputLabel id="service-selector-label">Servicio</InputLabel>
               <Select
@@ -694,6 +745,23 @@ export function BedMapDashboard({
                 ))}
               </Select>
             </FormControl>
+            </Stack>
+            <Stack
+              component="aside"
+              aria-label="Leyenda de estados de camas"
+              direction="row"
+              spacing={1}
+              useFlexGap
+              flexWrap="wrap"
+              alignItems="center"
+              sx={{ pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}
+            >
+              <Typography variant="caption" color="text.secondary" fontWeight={750}>Leyenda</Typography>
+              <StatusBadge label="Libre" tone="success" icon={<CheckCircle2 size={14} aria-hidden="true" />} />
+              <StatusBadge label="Ocupada" tone="warning" icon={<UserRound size={14} aria-hidden="true" />} />
+              <StatusBadge label="Traslado pendiente" tone="transfer" icon={<ArrowRightLeft size={14} aria-hidden="true" />} />
+              <StatusBadge label="Seleccionada" tone="info" icon={<CircleAlert size={14} aria-hidden="true" />} />
+            </Stack>
           </Stack>
         </CardContent>
       </Card>
@@ -718,10 +786,7 @@ export function BedMapDashboard({
       )}
 
       {initialLoading && !bedMap ? (
-        <Box sx={{ py: 7, textAlign: 'center' }}>
-          <CircularProgress aria-label="Cargando mapa de camas" />
-          <Typography sx={{ mt: 1.5 }} color="text.secondary">Cargando mapa de camas…</Typography>
-        </Box>
+        <LoadingState label="Cargando mapa de camas" rows={3} />
       ) : initialError && !bedMap ? (
         <Alert
           severity="error"
@@ -738,6 +803,7 @@ export function BedMapDashboard({
           <RoomMap
             key={room.id}
             room={room}
+            selectedBedId={selection?.bed.id}
             registerTrigger={registerTrigger}
             onSelect={(selectedRoom, bed) => {
               const next = { room: selectedRoom, bed }
@@ -774,9 +840,8 @@ export function BedMapDashboard({
           if (selectedServiceId) void loadMap(selectedServiceId, true)
         }}
       />
-      <Snackbar
+      <FeedbackSnackbar
         open={Boolean(notice)}
-        autoHideDuration={6000}
         onClose={() => setNotice(null)}
         message={notice}
       />

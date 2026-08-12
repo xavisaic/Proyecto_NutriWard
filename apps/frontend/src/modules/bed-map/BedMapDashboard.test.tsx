@@ -1,9 +1,16 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { ThemeProvider } from '@mui/material'
+import { cleanup, render as rtlRender, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { nutriwardTheme } from '../../app/theme/theme'
 import { BedMap, HospitalStructure } from '../../shared/services/api'
 import { BedMapDashboard, classifyRoomBeds } from './BedMapDashboard'
+
+function render(ui: ReactElement) {
+  return rtlRender(<ThemeProvider theme={nutriwardTheme}>{ui}</ThemeProvider>)
+}
 
 const MED_ID = '22000000-0000-0000-0000-000000000001'
 const UCI_ID = '22000000-0000-0000-0000-000000000002'
@@ -219,6 +226,8 @@ describe('mapa de camas', () => {
     expect(screen.getByRole('button', { name: /Cama 03, ocupada por Paciente NN/ })).toHaveTextContent('Edad no registrada')
     expect(screen.getByText('Nombre Provisorio')).toBeInTheDocument()
     expect(screen.getAllByText('Régimen: No disponible en esta fase').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Resumen del mapa')).toHaveTextContent('Camas activas')
+    expect(screen.getByLabelText('Leyenda de estados de camas')).toHaveTextContent('Traslado pendiente')
   })
 
   it('distingue en la cama de origen los dos estados de traslado pendiente', async () => {
@@ -295,6 +304,7 @@ describe('mapa de camas', () => {
     await userEvent.keyboard('{Enter}')
 
     const panel = await screen.findByRole('region', { name: 'Detalle de ocupación' })
+    expect(bed).toHaveAttribute('aria-pressed', 'true')
     expect(within(panel).getByText('ADM-0001')).toBeInTheDocument()
     expect(within(panel).getByText('Tipo de identidad: Identificado')).toBeInTheDocument()
     expect(within(panel).queryByText(/RUT|teléfono|fecha de nacimiento/i)).not.toBeInTheDocument()
@@ -302,6 +312,7 @@ describe('mapa de camas', () => {
 
     await userEvent.click(within(panel).getByRole('button', { name: 'Cerrar panel de ocupación' }))
     await waitFor(() => expect(bed).toHaveFocus())
+    expect(bed).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('una cama libre es operable por teclado sin abrir panel ni lanzar consultas', async () => {
