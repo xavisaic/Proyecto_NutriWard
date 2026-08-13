@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlmodel import select
 
@@ -401,6 +402,96 @@ def test_seed_is_idempotent_for_transfer_sequences(db_session) -> None:
         len(db_session.exec(select(PatientLocationHistory)).all()),
     )
     assert before == after
+
+
+def test_seed_retires_stale_open_fixture_and_creates_actionable_replacement(
+    db_session,
+) -> None:
+    from app.db.seed import seed_database
+
+    fixture_reason = "Dato ficticio Fase 7 · traslado pendiente recepción"
+    stale = db_session.exec(
+        select(PatientTransferRequest).where(
+            PatientTransferRequest.request_reason == fixture_reason,
+            PatientTransferRequest.status == "pending_reception",
+        )
+    ).one()
+    stale_admission = db_session.get(Admission, stale.admission_id)
+    assert stale_admission is not None
+    stale_admission.status = "discharged"
+    stale_admission.ended_at = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
+    stale_admission.end_reason = "Alta ficticia previa a una nueva ejecución del seed."
+    db_session.add(stale_admission)
+    later_user_admission = Admission(
+        patient_id=stale_admission.patient_id,
+        admission_identifier="ADM-USUARIO-ACTIVA-POSTERIOR",
+        status="active",
+        admitted_at=datetime(2026, 8, 12, 11, 0, tzinfo=timezone.utc),
+    )
+    db_session.add(later_user_admission)
+    db_session.commit()
+
+    seed_database(db_session)
+    db_session.expire_all()
+
+    retired = db_session.get(PatientTransferRequest, stale.id)
+    assert retired is not None and retired.status == "cancelled"
+    retired_history = db_session.exec(
+        select(PatientTransferRequestStatusHistory)
+        .where(PatientTransferRequestStatusHistory.transfer_request_id == stale.id)
+        .order_by(PatientTransferRequestStatusHistory.sequence_number)
+    ).all()
+    assert [event.to_status for event in retired_history] == [
+        "requested",
+        "pending_reception",
+        "cancelled",
+    ]
+    assert retired_history[-1].reason.startswith("Seed cerrado automaticamente")
+    assert db_session.exec(
+        select(AuditLog).where(
+            AuditLog.entity_id == stale.id,
+            AuditLog.action == "transfer_cancelled",
+            AuditLog.admission_id == stale.admission_id,
+        )
+    ).first() is not None
+
+    replacement = db_session.exec(
+        select(PatientTransferRequest).where(
+            PatientTransferRequest.request_reason == fixture_reason,
+            PatientTransferRequest.status == "pending_reception",
+        )
+    ).one()
+    assert replacement.admission_id != stale.admission_id
+    replacement_admission = db_session.get(Admission, replacement.admission_id)
+    assert replacement_admission is not None
+    assert replacement_admission.status == "active"
+    assert replacement_admission.patient_id != stale_admission.patient_id
+    assert replacement_admission.admission_identifier.startswith(
+        "ADM-DEMO-P7-OPEN-RECEPTION"
+    )
+    preserved_user_admission = db_session.get(Admission, later_user_admission.id)
+    assert preserved_user_admission is not None
+    assert preserved_user_admission.status == "active"
+    current_location = db_session.exec(
+        select(PatientLocationHistory).where(
+            PatientLocationHistory.admission_id == replacement.admission_id,
+            PatientLocationHistory.ended_at.is_(None),
+        )
+    ).one()
+    assert current_location.care_unit_id == replacement.origin_care_unit_id
+
+    counts_after_repair = (
+        len(db_session.exec(select(PatientTransferRequest)).all()),
+        len(db_session.exec(select(PatientTransferRequestStatusHistory)).all()),
+        len(db_session.exec(select(PatientLocationHistory)).all()),
+    )
+    seed_database(db_session)
+    counts_after_second_run = (
+        len(db_session.exec(select(PatientTransferRequest)).all()),
+        len(db_session.exec(select(PatientTransferRequestStatusHistory)).all()),
+        len(db_session.exec(select(PatientLocationHistory)).all()),
+    )
+    assert counts_after_second_run == counts_after_repair
 
 
 def test_nutritionist_outside_assigned_services_is_allowed_and_marked_as_coverage(

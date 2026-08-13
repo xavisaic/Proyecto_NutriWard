@@ -1,5 +1,6 @@
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   Card,
@@ -18,6 +19,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   Stack,
   Switch,
   TextField,
@@ -42,7 +44,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
@@ -100,6 +102,12 @@ const CARE_UNIT_TYPE_LABELS: Record<CareUnitType, string> = {
 
 function careUnitDisplayName(careUnit: HospitalCareUnit): string {
   return careUnit.label || `${CARE_UNIT_TYPE_LABELS[careUnit.unit_type]} ${careUnit.code}`
+}
+
+interface ActionError {
+  serviceId: string
+  title: string
+  message: string
 }
 
 function careUnitIcon(unitType: CareUnitType, size = 17) {
@@ -569,11 +577,13 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
   const [showInactive, setShowInactive] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<ActionError | null>(null)
   const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null)
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [busyEntityId, setBusyEntityId] = useState<string | null>(null)
   const [expandedServiceIds, setExpandedServiceIds] = useState<Set<string>>(new Set())
+  const actionTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
@@ -628,6 +638,7 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
   async function toggleEntity(
     kind: CreateKind,
     entity: HospitalService | HospitalRoom | HospitalCareUnit,
+    ownerService?: HospitalService,
   ) {
     const endpoint = kind === 'service'
       ? `/hospital/services/${entity.id}`
@@ -639,6 +650,7 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
 
     setBusyEntityId(entity.id)
     setError(null)
+    setActionError(null)
     try {
       await apiRequest(
         endpoint,
@@ -650,9 +662,18 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
       )
       await refresh()
     } catch (requestError) {
-      setError(errorMessage(requestError))
+      const service = kind === 'service' ? entity as HospitalService : ownerService
+      const entityName = kind === 'careUnit'
+        ? careUnitDisplayName(entity as HospitalCareUnit)
+        : (entity as HospitalService | HospitalRoom).name
+      setActionError({
+        serviceId: service?.id ?? entity.id,
+        title: `No se pudo ${action} ${entityName}`,
+        message: errorMessage(requestError),
+      })
     } finally {
       setBusyEntityId(null)
+      window.setTimeout(() => actionTriggerRefs.current.get(entity.id)?.focus(), 0)
     }
   }
 
@@ -785,6 +806,11 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
           const serviceCareUnits = service.rooms.flatMap((room) => room.care_units)
           const bedCount = serviceCareUnits.filter((unit) => unit.unit_type === 'bed').length
           const panelId = `service-panel-${service.id}`
+          const activeRoomCount = service.rooms.filter((room) => room.is_active).length
+          const serviceDeactivationBlocked = service.is_active && activeRoomCount > 0
+          const serviceToggleHelp = serviceDeactivationBlocked
+            ? `Primero debe inactivar ${activeRoomCount === 1 ? 'la sala activa' : `las ${activeRoomCount} salas activas`} de este servicio.`
+            : service.is_active ? 'Inactivar servicio' : 'Reactivar servicio'
           return (
             <Card
               key={service.id}
@@ -896,11 +922,19 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                         <Pencil size={18} />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={service.is_active ? 'Inactivar servicio' : 'Reactivar servicio'}>
-                      <span>
+                    <Tooltip title={serviceToggleHelp}>
+                      <span
+                        tabIndex={serviceDeactivationBlocked ? 0 : undefined}
+                        aria-label={serviceDeactivationBlocked ? serviceToggleHelp : undefined}
+                        style={{ display: 'inline-flex' }}
+                      >
                         <IconButton
+                          ref={(element) => {
+                            if (element) actionTriggerRefs.current.set(service.id, element)
+                            else actionTriggerRefs.current.delete(service.id)
+                          }}
                           size="small"
-                          disabled={busyEntityId === service.id}
+                          disabled={busyEntityId === service.id || serviceDeactivationBlocked}
                           onClick={() => void toggleEntity('service', service)}
                           aria-label={service.is_active ? 'Inactivar servicio' : 'Reactivar servicio'}
                         >
@@ -923,6 +957,18 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                   </Stack>
                 )}
               </Stack>
+
+              {actionError?.serviceId === service.id && (
+                <Alert
+                  severity="error"
+                  role="alert"
+                  onClose={() => setActionError(null)}
+                  sx={{ mx: { xs: 1.5, md: 2 }, mb: 1.5 }}
+                >
+                  <AlertTitle>{actionError.title}</AlertTitle>
+                  {actionError.message}
+                </Alert>
+              )}
 
               <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                 <CardContent id={panelId} sx={{ p: { xs: 2, md: 2.5 }, pt: 0 }}>
@@ -1013,9 +1059,13 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                                   <Tooltip title={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}>
                                     <span>
                                       <IconButton
+                                        ref={(element) => {
+                                          if (element) actionTriggerRefs.current.set(room.id, element)
+                                          else actionTriggerRefs.current.delete(room.id)
+                                        }}
                                         size="small"
                                         disabled={busyEntityId === room.id}
-                                        onClick={() => void toggleEntity('room', room)}
+                                        onClick={() => void toggleEntity('room', room, service)}
                                         aria-label={room.is_active ? 'Inactivar sala' : 'Reactivar sala'}
                                       >
                                         <Power size={17} />
@@ -1086,9 +1136,13 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
                                             <Pencil size={13} />
                                           </IconButton>
                                           <IconButton
+                                            ref={(element) => {
+                                              if (element) actionTriggerRefs.current.set(careUnit.id, element)
+                                              else actionTriggerRefs.current.delete(careUnit.id)
+                                            }}
                                             size="small"
                                             disabled={busyEntityId === careUnit.id}
-                                            onClick={() => void toggleEntity('careUnit', careUnit)}
+                                            onClick={() => void toggleEntity('careUnit', careUnit, service)}
                                             aria-label={careUnit.is_active ? 'Inactivar ubicación' : 'Reactivar ubicación'}
                                             sx={{ p: 0.25 }}
                                           >
@@ -1144,6 +1198,30 @@ export function HospitalDashboard({ canEdit, canDelete, csrfToken }: HospitalDas
           )
         })}
       </Stack>
+
+      <Snackbar
+        open={Boolean(actionError)}
+        autoHideDuration={10_000}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        onClose={(_, reason) => {
+          if (reason !== 'clickaway') setActionError(null)
+        }}
+      >
+        <Alert
+          severity="error"
+          variant="filled"
+          role="alert"
+          onClose={() => setActionError(null)}
+          sx={{ width: '100%', maxWidth: 520, boxShadow: 8 }}
+        >
+          {actionError && (
+            <>
+              <AlertTitle>{actionError.title}</AlertTitle>
+              {actionError.message}
+            </>
+          )}
+        </Alert>
+      </Snackbar>
 
       {createTarget && (
         <CreateDialog

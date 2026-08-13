@@ -235,4 +235,60 @@ describe('estructura hospitalaria', () => {
     expect(await screen.findByText('Sin salas registradas')).toBeInTheDocument()
     expect(screen.getByText('Este servicio todavía no contiene salas o sectores.')).toBeInTheDocument()
   })
+
+  it('previene inactivar un servicio con salas activas y explica cómo resolverlo', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(structure), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+
+    const deactivate = screen.getByRole('button', { name: 'Inactivar servicio' })
+    expect(deactivate).toBeDisabled()
+    const help = screen.getByLabelText('Primero debe inactivar la sala activa de este servicio.')
+    await userEvent.hover(help)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Primero debe inactivar la sala activa de este servicio.',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('muestra un rechazo inesperado junto al servicio y en un aviso fijo inmediato', async () => {
+    const serviceWithoutRooms = {
+      items: [{ ...structure.items[0], rooms: [] }],
+      total: 1,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (init?.method === 'PATCH') {
+        return Promise.resolve(new Response(JSON.stringify({
+          detail: 'No se puede inactivar el servicio porque tiene traslados abiertos.',
+        }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(serviceWithoutRooms), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<HospitalDashboard canEdit canDelete csrfToken="csrf-demo" />)
+    await screen.findByText('Medicina')
+    const deactivate = screen.getByRole('button', { name: 'Inactivar servicio' })
+    await userEvent.click(deactivate)
+
+    expect(await screen.findAllByText('No se pudo inactivar Medicina')).toHaveLength(2)
+    expect(screen.getAllByText(
+      'No se puede inactivar el servicio porque tiene traslados abiertos.',
+    )).toHaveLength(2)
+    expect(screen.getAllByRole('alert')).toHaveLength(2)
+    await waitFor(() => expect(deactivate).toHaveFocus())
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true)
+  })
 })

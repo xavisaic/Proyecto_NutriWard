@@ -77,6 +77,12 @@ No puede inactivarse una cama ocupada ni un servicio con traslados abiertos. Ser
 y camas referenciados por historial no se purgan. Los seeds ficticios e idempotentes
 incluyen los seis resultados operacionales requeridos.
 
+Si una hospitalización usada por un seed abierto fue terminada entre ejecuciones, el
+seed conserva y cancela esa solicitud con historial y auditoría, cierra cualquier
+ubicación vigente inconsistente y crea un reemplazo ficticio exclusivo con
+hospitalización activa y cama. Nunca reactiva ni sobrescribe hospitalizaciones o
+fichas modificadas por el usuario.
+
 Quedan fuera: tránsito físico sin cama, retornos físicos, traslados externos, reservas,
 drag and drop, aseo/mantenimiento, WebSockets, raciones, prescripciones, regímenes,
 evaluaciones, diagnósticos, etiquetas y Zebra.

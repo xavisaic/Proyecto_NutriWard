@@ -25,6 +25,7 @@ from app.models.role import Role
 from app.models.room import Room
 from app.models.user import User
 from app.models.user_role import UserRole
+from app.services.audit_service import record_audit
 from app.services.user_service import normalize_email
 
 ROLE_DEFINITIONS = {
@@ -392,6 +393,255 @@ def seed_database(session: Session) -> None:
     uti_bed = bed("UTI", "UTI-A", "02")
     uci_bed = bed("UCI", "UCI-A", "01")
 
+    # A demo admission may have been discharged or administratively closed by a
+    # developer between seed runs. Never recreate an open transfer on that
+    # inactive admission: retire any legacy open fixture first, preserving its
+    # history and audit trail.
+    open_statuses = ("requested", "pending_reception", "accepted", "pending_bed")
+    stale_open_transfers = session.exec(
+        select(PatientTransferRequest, Admission)
+        .join(Admission, Admission.id == PatientTransferRequest.admission_id)
+        .where(
+            PatientTransferRequest.status.in_(open_statuses),
+            PatientTransferRequest.request_reason.startswith("Dato ficticio Fase 7"),
+            Admission.status != "active",
+        )
+    ).all()
+    for transfer, inactive_admission in stale_open_transfers:
+        cleanup_at = utc_now()
+        last_event = session.exec(
+            select(PatientTransferRequestStatusHistory)
+            .where(
+                PatientTransferRequestStatusHistory.transfer_request_id == transfer.id
+            )
+            .order_by(PatientTransferRequestStatusHistory.sequence_number.desc())
+        ).first()
+        previous_status = transfer.status
+        cleanup_reason = (
+            "Seed cerrado automaticamente: la hospitalizacion ya no esta activa."
+        )
+        session.add(
+            PatientTransferRequestStatusHistory(
+                transfer_request_id=transfer.id,
+                sequence_number=(last_event.sequence_number if last_event else 0) + 1,
+                from_status=previous_status,
+                to_status="cancelled",
+                reason=cleanup_reason,
+                changed_by_user_id=seed_actor.id,
+                changed_at=cleanup_at,
+                is_coverage=False,
+            )
+        )
+        transfer.status = "cancelled"
+        transfer.completed_at = cleanup_at
+        transfer.updated_at = cleanup_at
+        session.add(transfer)
+        record_audit(
+            session,
+            action="transfer_cancelled",
+            actor_user_id=seed_actor.id,
+            entity_type="patient_transfer_request",
+            entity_id=transfer.id,
+            before_state={"status": previous_status},
+            after_state={
+                "status": "cancelled",
+                "reason": cleanup_reason,
+                "seed_cleanup": True,
+            },
+            admission_id=inactive_admission.id,
+        )
+        current_locations = session.exec(
+            select(PatientLocationHistory).where(
+                PatientLocationHistory.admission_id == inactive_admission.id,
+                PatientLocationHistory.ended_at.is_(None),
+            )
+        ).all()
+        for location in current_locations:
+            location.ended_at = cleanup_at
+            location.ended_by_user_id = seed_actor.id
+            session.add(location)
+    session.flush()
+
+    def open_seed_admission(
+        *,
+        base_admission: Admission,
+        identifier_prefix: str,
+        patient_identifier_prefix: str,
+        preferred_bed: CareUnit,
+        admitted_at: datetime,
+        destination_service: HospitalService,
+    ) -> tuple[Admission, CareUnit, HospitalService]:
+        """Return an active, bedded admission reserved for an open Phase 7 fixture."""
+
+        candidates = [base_admission]
+        candidates.extend(
+            session.exec(
+                select(Admission)
+                .where(
+                    Admission.admission_identifier.startswith(identifier_prefix),
+                    Admission.status == "active",
+                )
+                .order_by(Admission.admitted_at.desc(), Admission.id)
+            ).all()
+        )
+        for candidate in candidates:
+            if candidate.status != "active":
+                continue
+            current_row = session.exec(
+                select(PatientLocationHistory, CareUnit, Room, HospitalService)
+                .join(CareUnit, CareUnit.id == PatientLocationHistory.care_unit_id)
+                .join(Room, Room.id == CareUnit.room_id)
+                .join(HospitalService, HospitalService.id == Room.service_id)
+                .where(
+                    PatientLocationHistory.admission_id == candidate.id,
+                    PatientLocationHistory.ended_at.is_(None),
+                    CareUnit.is_active.is_(True),
+                    CareUnit.unit_type == "bed",
+                    Room.is_active.is_(True),
+                    HospitalService.is_active.is_(True),
+                    HospitalService.id != destination_service.id,
+                )
+            ).first()
+            if current_row is not None:
+                _, current_bed, _, current_service = current_row
+                return candidate, current_bed, current_service
+
+        occupied_bed_ids = set(
+            session.exec(
+                select(PatientLocationHistory.care_unit_id).where(
+                    PatientLocationHistory.ended_at.is_(None)
+                )
+            ).all()
+        )
+        available_rows = session.exec(
+            select(CareUnit, Room, HospitalService)
+            .join(Room, Room.id == CareUnit.room_id)
+            .join(HospitalService, HospitalService.id == Room.service_id)
+            .where(
+                CareUnit.is_active.is_(True),
+                CareUnit.unit_type == "bed",
+                Room.is_active.is_(True),
+                HospitalService.is_active.is_(True),
+                HospitalService.id != destination_service.id,
+            )
+            .order_by(HospitalService.code, Room.code, CareUnit.code, CareUnit.id)
+        ).all()
+        available_rows = [
+            row for row in available_rows if row[0].id not in occupied_bed_ids
+        ]
+        selected_row = next(
+            (row for row in available_rows if row[0].id == preferred_bed.id),
+            available_rows[0] if available_rows else None,
+        )
+        if selected_row is None:
+            raise RuntimeError(
+                "No existe una cama activa y libre para el seed abierto de Fase 7."
+            )
+        selected_bed, _, selected_service = selected_row
+
+        existing_identifiers = set(
+            session.exec(
+                select(Admission.admission_identifier).where(
+                    Admission.admission_identifier.startswith(identifier_prefix)
+                )
+            ).all()
+        )
+        suffix = 1
+        identifier = f"{identifier_prefix}-{suffix:02d}"
+        while identifier in existing_identifiers:
+            suffix += 1
+            identifier = f"{identifier_prefix}-{suffix:02d}"
+        replacement_patient_id = base_admission.patient_id
+        patient_has_active_admission = session.exec(
+            select(Admission.id).where(
+                Admission.patient_id == replacement_patient_id,
+                Admission.status == "active",
+            )
+        ).first()
+        if patient_has_active_admission is not None:
+            seed_patients = session.exec(
+                select(Patient)
+                .where(
+                    Patient.temporary_identifier.startswith(patient_identifier_prefix),
+                    Patient.is_active.is_(True),
+                    Patient.merged_into_patient_id.is_(None),
+                )
+                .order_by(Patient.temporary_identifier, Patient.id)
+            ).all()
+            replacement_patient = next(
+                (
+                    patient
+                    for patient in seed_patients
+                    if session.exec(
+                        select(Admission.id).where(
+                            Admission.patient_id == patient.id,
+                            Admission.status == "active",
+                        )
+                    ).first()
+                    is None
+                ),
+                None,
+            )
+            if replacement_patient is None:
+                existing_patient_identifiers = {
+                    patient.temporary_identifier for patient in seed_patients
+                }
+                patient_suffix = 1
+                temporary_identifier = (
+                    f"{patient_identifier_prefix}-{patient_suffix:02d}"
+                )
+                while temporary_identifier in existing_patient_identifiers:
+                    patient_suffix += 1
+                    temporary_identifier = (
+                        f"{patient_identifier_prefix}-{patient_suffix:02d}"
+                    )
+                replacement_patient = Patient(
+                    identity_status="unidentified",
+                    temporary_identifier=temporary_identifier,
+                    provisional_description=(
+                        "Paciente ficticio exclusivo para traslado abierto de Fase 7."
+                    ),
+                    sex="unknown",
+                    is_active=True,
+                    created_by_user_id=seed_actor.id,
+                    updated_by_user_id=seed_actor.id,
+                )
+                session.add(replacement_patient)
+                session.flush()
+            replacement_patient_id = replacement_patient.id
+
+        replacement = Admission(
+            patient_id=replacement_patient_id,
+            admission_identifier=identifier,
+            status="active",
+            admitted_at=admitted_at,
+            created_by_user_id=seed_actor.id,
+            updated_by_user_id=seed_actor.id,
+        )
+        session.add(replacement)
+        session.flush()
+        session.add(
+            AdmissionStatusHistory(
+                admission_id=replacement.id,
+                from_status=None,
+                to_status="active",
+                reason="HospitalizaciÃ³n ficticia exclusiva para traslado abierto de Fase 7.",
+                changed_at=admitted_at,
+                changed_by_user_id=seed_actor.id,
+            )
+        )
+        session.add(
+            PatientLocationHistory(
+                admission_id=replacement.id,
+                care_unit_id=selected_bed.id,
+                started_at=admitted_at,
+                reason="UbicaciÃ³n ficticia exclusiva para traslado abierto de Fase 7.",
+                assigned_by_user_id=seed_actor.id,
+            )
+        )
+        session.flush()
+        return replacement, selected_bed, selected_service
+
     def ensure_transfer(
         *,
         admission: Admission,
@@ -471,29 +721,30 @@ def seed_database(session: Session) -> None:
         history_statuses=("requested", "pending_reception", "accepted", "assigned_to_bed"),
         requested_at=datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc),
     )
-    current_med = session.exec(
-        select(PatientLocationHistory).where(
-            PatientLocationHistory.admission_id == active_med.id,
-            PatientLocationHistory.ended_at.is_(None),
-        )
-    ).first()
-    if current_med is None or current_med.care_unit_id != uti_bed.id:
-        moved_at = datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc)
-        if current_med is not None:
-            current_med.ended_at = moved_at
-            current_med.ended_by_user_id = seed_actor.id
-            session.add(current_med)
-            session.flush()
-        session.add(
-            PatientLocationHistory(
-                admission_id=active_med.id,
-                care_unit_id=uti_bed.id,
-                started_at=moved_at,
-                reason=f"Traslado demo {direct.id}",
-                assigned_by_user_id=seed_actor.id,
+    if active_med.status == "active":
+        current_med = session.exec(
+            select(PatientLocationHistory).where(
+                PatientLocationHistory.admission_id == active_med.id,
+                PatientLocationHistory.ended_at.is_(None),
             )
-        )
-        session.flush()
+        ).first()
+        if current_med is None or current_med.care_unit_id != uti_bed.id:
+            moved_at = datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc)
+            if current_med is not None:
+                current_med.ended_at = moved_at
+                current_med.ended_by_user_id = seed_actor.id
+                session.add(current_med)
+                session.flush()
+            session.add(
+                PatientLocationHistory(
+                    admission_id=active_med.id,
+                    care_unit_id=uti_bed.id,
+                    started_at=moved_at,
+                    reason=f"Traslado demo {direct.id}",
+                    assigned_by_user_id=seed_actor.id,
+                )
+            )
+            session.flush()
 
     terminal_definitions = (
         ("traslado rechazado", "rejected", ("requested", "pending_reception", "rejected"), 7),
@@ -517,22 +768,42 @@ def seed_database(session: Session) -> None:
             requested_at=datetime(2026, 8, day, 9, 0, tzinfo=timezone.utc),
         )
 
+    pending_reception_admission, pending_reception_bed, pending_reception_origin = (
+        open_seed_admission(
+            base_admission=active_med,
+            identifier_prefix="ADM-DEMO-P7-OPEN-RECEPTION",
+            patient_identifier_prefix="NN-P7-RECEPTION",
+            preferred_bed=uti_bed,
+            admitted_at=datetime(2026, 8, 10, 8, 30, tzinfo=timezone.utc),
+            destination_service=service_by_code["MED"],
+        )
+    )
     ensure_transfer(
-        admission=active_med,
+        admission=pending_reception_admission,
         key="traslado pendiente recepción",
-        origin_service=service_by_code["UTI"],
+        origin_service=pending_reception_origin,
         destination_service=service_by_code["MED"],
-        origin_bed=uti_bed,
+        origin_bed=pending_reception_bed,
         final_status="pending_reception",
         history_statuses=("requested", "pending_reception"),
         requested_at=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc),
     )
+    pending_bed_admission, pending_bed_origin_bed, pending_bed_origin = (
+        open_seed_admission(
+            base_admission=active_uci,
+            identifier_prefix="ADM-DEMO-P7-OPEN-BED",
+            patient_identifier_prefix="NN-P7-BED",
+            preferred_bed=uci_bed,
+            admitted_at=datetime(2026, 8, 11, 8, 30, tzinfo=timezone.utc),
+            destination_service=service_by_code["MED"],
+        )
+    )
     ensure_transfer(
-        admission=active_uci,
+        admission=pending_bed_admission,
         key="traslado aceptado pendiente de cama",
-        origin_service=service_by_code["UCI"],
+        origin_service=pending_bed_origin,
         destination_service=service_by_code["MED"],
-        origin_bed=uci_bed,
+        origin_bed=pending_bed_origin_bed,
         final_status="pending_bed",
         history_statuses=("requested", "pending_reception", "accepted", "pending_bed"),
         requested_at=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
