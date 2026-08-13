@@ -1,4 +1,12 @@
-# Backend (Fase 7)
+# Backend (Fase 8)
+
+La ficha del paciente agrega dos proyecciones de sólo lectura:
+
+- `GET /api/v1/patients/{patient_id}/chart-summary`
+- `GET /api/v1/admissions/{admission_id}/operational-timeline`
+
+Reutilizan las tablas existentes, requieren rol `administrador`, `jefatura` o
+`nutricionista`, y no exponen `audit_logs` ni persistencia clínica.
 
 ## Ejecución local
 

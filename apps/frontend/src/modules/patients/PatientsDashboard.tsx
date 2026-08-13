@@ -45,6 +45,9 @@ interface PatientsDashboardProps {
   canMutate: boolean
   canResolveActiveConflicts?: boolean
   csrfToken: string
+  onOpenPatient?: (patientId: string, admissionId?: string) => void
+  search?: string
+  onSearchChange?: (search: string) => void
 }
 
 const IDENTITY_LABELS: Record<IdentityStatus, string> = {
@@ -359,7 +362,7 @@ function PatientCreateDialog({
   )
 }
 
-function IdentityDialog({
+export function IdentityDialog({
   csrfToken,
   patient,
   canResolveActiveConflicts,
@@ -633,7 +636,7 @@ function IdentityDialog({
   )
 }
 
-function LocationDialog({
+export function LocationDialog({
   admission,
   beds,
   csrfToken,
@@ -730,12 +733,18 @@ export function PatientsDashboard({
   canMutate,
   canResolveActiveConflicts = false,
   csrfToken,
+  onOpenPatient,
+  search = '',
+  onSearchChange,
 }: PatientsDashboardProps) {
+  const initialParams = useMemo(() => new URLSearchParams(search), [search])
   const [patients, setPatients] = useState<PatientList | null>(null)
-  const [query, setQuery] = useState('')
-  const [submittedQuery, setSubmittedQuery] = useState('')
-  const [identityStatus, setIdentityStatus] = useState<IdentityStatus | ''>('')
-  const [page, setPage] = useState(1)
+  const [query, setQuery] = useState(initialParams.get('q') ?? '')
+  const [submittedQuery, setSubmittedQuery] = useState(initialParams.get('q') ?? '')
+  const [identityStatus, setIdentityStatus] = useState<IdentityStatus | ''>(
+    (initialParams.get('identity_status') as IdentityStatus | null) ?? '',
+  )
+  const [page, setPage] = useState(Math.max(1, Number(initialParams.get('page')) || 1))
   const [selected, setSelected] = useState<Patient | null>(null)
   const [structure, setStructure] = useState<HospitalStructure | null>(null)
   const [activeAdmissions, setActiveAdmissions] = useState<AdmissionList | null>(null)
@@ -775,6 +784,26 @@ export function PatientsDashboard({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!onSearchChange) return
+    const params = new URLSearchParams()
+    if (submittedQuery) params.set('q', submittedQuery)
+    if (identityStatus) params.set('identity_status', identityStatus)
+    if (page > 1) params.set('page', String(page))
+    onSearchChange(params.toString())
+  }, [identityStatus, onSearchChange, page, submittedQuery])
+
+  useEffect(() => {
+    const next = new URLSearchParams(search)
+    const nextQuery = next.get('q') ?? ''
+    const nextIdentity = (next.get('identity_status') as IdentityStatus | null) ?? ''
+    const nextPage = Math.max(1, Number(next.get('page')) || 1)
+    setQuery(nextQuery)
+    setSubmittedQuery(nextQuery)
+    setIdentityStatus(nextIdentity)
+    setPage(nextPage)
+  }, [search])
 
   const beds = useMemo(
     () => (structure?.items.flatMap((service) =>
@@ -913,7 +942,9 @@ export function PatientsDashboard({
             <Stack spacing={1.5}>
               {patients?.items.map((patient) => (
                 <Card key={patient.id} variant="outlined">
-                  <CardActionArea onClick={() => void openPatient(patient.id)}>
+                  <CardActionArea onClick={() => onOpenPatient
+                    ? onOpenPatient(patient.id, patient.active_admission?.id)
+                    : void openPatient(patient.id)}>
                     <CardContent>
                       <Stack direction="row" justifyContent="space-between" gap={2}>
                         <Box>
@@ -1058,12 +1089,16 @@ export function PatientsDashboard({
           onClose={() => setCreateOpen(false)}
           onSelectExisting={(patientId) => {
             setCreateOpen(false)
-            void openPatient(patientId)
+            if (onOpenPatient) onOpenPatient(patientId)
+            else void openPatient(patientId)
           }}
           onCreated={(patient) => {
             setCreateOpen(false)
-            setSelected(patient)
-            void load()
+            if (onOpenPatient) onOpenPatient(patient.id, patient.active_admission?.id)
+            else {
+              setSelected(patient)
+              void load()
+            }
           }}
         />
       )}

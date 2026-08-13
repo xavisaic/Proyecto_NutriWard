@@ -2,6 +2,7 @@ import re
 import uuid
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -295,3 +296,114 @@ class PotentialPatientMatchesResponse(BaseModel):
 class AdmissionListResponse(BaseModel):
     items: list[AdmissionRead]
     total: int
+
+
+class PatientChartAge(BaseModel):
+    value: int | None
+    unit: Literal["days", "months", "years"] | None
+    is_estimated: bool
+    reference_date: date
+    display: str
+
+
+class PatientChartIdentity(BaseModel):
+    id: uuid.UUID
+    identity_status: IdentityStatus
+    display_name: str
+    temporary_identifier: str | None
+    rut: str | None
+    hospital_identifier: str | None
+    date_of_birth: date | None
+    date_of_birth_is_estimated: bool
+    sex: PatientSex | None
+    phone: str | None
+    provisional_description: str | None
+    merged_into_patient_id: uuid.UUID | None
+    is_active: bool
+    current_age: PatientChartAge
+
+
+class PatientChartLocation(BaseModel):
+    id: uuid.UUID
+    care_unit_id: uuid.UUID
+    care_unit_code: str
+    care_unit_label: str | None
+    room_id: uuid.UUID
+    room_code: str
+    room_name: str
+    service_id: uuid.UUID
+    service_code: str
+    service_name: str
+    started_at: datetime
+    ended_at: datetime | None
+    reason: str | None
+    is_current: bool
+
+
+class PatientChartTransfer(BaseModel):
+    id: uuid.UUID
+    status: str
+    transfer_mode: str
+    requested_at: datetime
+    request_reason: str | None
+    origin_service_id: uuid.UUID
+    origin_service_code: str
+    origin_service_name: str
+    destination_service_id: uuid.UUID
+    destination_service_code: str
+    destination_service_name: str
+
+
+class PatientChartAdmission(BaseModel):
+    id: uuid.UUID
+    admission_identifier: str
+    status: AdmissionStatus
+    admitted_at: datetime
+    ended_at: datetime | None
+    end_reason: str | None
+    duration_days: int
+    is_historical: bool
+    location: PatientChartLocation | None
+    bed_status: Literal["occupied", "unassigned", "released"]
+    open_transfer: PatientChartTransfer | None = None
+    age_at_admission: PatientChartAge
+
+
+class OperationalTimelineLocation(BaseModel):
+    care_unit_id: uuid.UUID | None = None
+    care_unit_code: str | None = None
+    care_unit_label: str | None = None
+    room_id: uuid.UUID | None = None
+    room_code: str | None = None
+    room_name: str | None = None
+    service_id: uuid.UUID
+    service_code: str
+    service_name: str
+
+
+class OperationalTimelineEvent(BaseModel):
+    id: str
+    event_type: str
+    occurred_at: datetime
+    title: str
+    description: str
+    reason: str | None = None
+    status: str | None = None
+    origin: OperationalTimelineLocation | None = None
+    destination: OperationalTimelineLocation | None = None
+
+
+class OperationalTimelineResponse(BaseModel):
+    admission_id: uuid.UUID
+    items: list[OperationalTimelineEvent]
+    total: int
+    page: int
+    page_size: int
+
+
+class PatientChartSummary(BaseModel):
+    patient: PatientChartIdentity
+    selected_admission: PatientChartAdmission | None
+    admissions: list[PatientChartAdmission]
+    total_admissions: int
+    recent_operational_events: list[OperationalTimelineEvent]

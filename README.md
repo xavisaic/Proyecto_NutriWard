@@ -1,6 +1,11 @@
 # Proyecto NutriWard
 
-Base técnica completa de Fase 7 para una plataforma web de gestión nutricional clínica.
+Base técnica completa hasta Fase 8 para una plataforma web de gestión nutricional clínica.
+
+Fase 8 incorpora una ficha longitudinal navegable en `/patients/:patient_id/:tab`,
+con selector de hospitalización, Resumen, Movimientos e Historial funcionales. Los
+módulos clínico-nutricionales permanecen como placeholders sin persistencia. Ver
+`docs/planning/FASE-8-FICHA-PACIENTE-PESTANAS.md`.
 
 ## Stack
 

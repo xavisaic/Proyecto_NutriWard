@@ -44,6 +44,7 @@ interface BedMapDashboardProps {
   isNutritionist?: boolean
   canMutateTransfers?: boolean
   csrfToken?: string
+  onOpenPatient?: (patientId: string, admissionId?: string) => void
 }
 
 const identityLabels: Record<IdentityStatus, string> = {
@@ -379,12 +380,14 @@ function OccupancyDrawer({
   onClose,
   canMove,
   onMove,
+  onOpenPatient,
 }: {
   service: BedMap['service'] | null
   selection: Selection | null
   onClose: () => void
   canMove: boolean
   onMove: () => void
+  onOpenPatient?: (patientId: string, admissionId?: string) => void
 }) {
   const occupancy = selection?.bed.occupancy
   return (
@@ -440,6 +443,14 @@ function OccupancyDrawer({
               </Alert>
             )}
             <Alert severity="info">Régimen: No disponible en esta fase</Alert>
+            {onOpenPatient && (
+              <Button
+                variant="outlined"
+                onClick={() => onOpenPatient(occupancy.patient.id, occupancy.admission.id)}
+              >
+                Abrir ficha completa
+              </Button>
+            )}
             {canMove && <Button variant="contained" onClick={onMove}>Mover paciente</Button>}
             <Button variant="outlined" onClick={onClose}>Cerrar</Button>
           </Stack>
@@ -454,6 +465,7 @@ export function BedMapDashboard({
   isNutritionist = false,
   canMutateTransfers = false,
   csrfToken = '',
+  onOpenPatient,
 }: BedMapDashboardProps = {}) {
   const [services, setServices] = useState<HospitalService[] | null>(null)
   const [assignedServiceIds, setAssignedServiceIds] = useState<Set<string>>(new Set())
@@ -773,6 +785,7 @@ export function BedMapDashboard({
           csrfToken={csrfToken}
           refreshToken={trayRefreshToken}
           onMutation={() => void loadMap(selectedServiceId, true)}
+          onOpenPatient={onOpenPatient}
         />
       )}
 
@@ -820,6 +833,7 @@ export function BedMapDashboard({
         onClose={closePanel}
         canMove={canMutateTransfers}
         onMove={() => setMoveOpen(true)}
+        onOpenPatient={onOpenPatient}
       />
       <MovePatientDialog
         open={moveOpen}

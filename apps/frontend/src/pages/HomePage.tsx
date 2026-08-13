@@ -1,17 +1,30 @@
 import { Building2, LayoutDashboard, Settings, UsersRound } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useLocation, useRoute, useSearch } from 'wouter'
 
 import { AdministrationDashboard } from '../modules/administration/AdministrationDashboard'
 import { useAuth } from '../modules/auth/AuthContext'
 import { BedMapDashboard } from '../modules/bed-map/BedMapDashboard'
 import { HospitalDashboard } from '../modules/hospital/HospitalDashboard'
+import { PatientChartPage } from '../modules/patients/PatientChartPage'
 import { PatientsDashboard } from '../modules/patients/PatientsDashboard'
 import { AppNavigationItem, AppShell } from '../shared/layout'
 
 type ModuleId = 'hospital' | 'bed-map' | 'patients' | 'administration'
 
+const MODULE_PATHS: Record<ModuleId, string> = {
+  hospital: '/hospital',
+  'bed-map': '/bed-map',
+  patients: '/patients',
+  administration: '/administration',
+}
+
 export function HomePage() {
   const { logout, session } = useAuth()
+  const [location, navigate] = useLocation()
+  const search = useSearch()
+  const [, detailRoute] = useRoute('/patients/:patientId/:tab')
+  const [, patientRoute] = useRoute('/patients/:patientId')
   const user = session!.user
   const canEdit = user.roles.some((role) => role === 'administrador' || role === 'jefatura')
   const canDelete = user.roles.includes('administrador')
@@ -27,12 +40,29 @@ export function HomePage() {
   const canReadBedMap = user.roles.some((role) =>
     ['administrador', 'jefatura', 'nutricionista', 'alimentacion'].includes(role),
   )
-  const initialModule: ModuleId = user.roles.includes('alimentacion') && !canReadPatients
-    ? 'bed-map'
+  const defaultPath = user.roles.includes('alimentacion') && !canReadPatients
+    ? '/bed-map'
     : user.roles.includes('nutricionista') && !canReadAdministration
-      ? 'patients'
-      : 'hospital'
-  const [module, setModule] = useState<ModuleId>(initialModule)
+      ? '/patients'
+      : '/hospital'
+
+  useEffect(() => {
+    if (location === '/') navigate(defaultPath, { replace: true })
+    if (location.startsWith('/patients') && !canReadPatients) {
+      navigate(defaultPath, { replace: true })
+    }
+    if (location.startsWith('/administration') && !canReadAdministration) {
+      navigate(defaultPath, { replace: true })
+    }
+  }, [canReadAdministration, canReadPatients, defaultPath, location, navigate])
+
+  const activeModule: ModuleId = location.startsWith('/patients')
+    ? 'patients'
+    : location.startsWith('/bed-map')
+      ? 'bed-map'
+      : location.startsWith('/administration')
+        ? 'administration'
+        : 'hospital'
 
   const navigationItems = useMemo<AppNavigationItem<ModuleId>[]>(() => [
     {
@@ -61,36 +91,66 @@ export function HomePage() {
     }] : []),
   ], [canReadAdministration, canReadBedMap, canReadPatients])
 
+  function openPatient(patientId: string, admissionId?: string) {
+    const params = new URLSearchParams()
+    if (admissionId) params.set('admission_id', admissionId)
+    const source = `${location}${search ? `?${search}` : ''}`
+    params.set('return_to', source)
+    navigate(`/patients/${patientId}/summary?${params}`)
+  }
+
+  let content
+  if (detailRoute && canReadPatients) {
+    content = (
+      <PatientChartPage
+        patientId={detailRoute.patientId}
+        requestedTab={detailRoute.tab}
+        search={search}
+        roles={user.roles}
+        csrfToken={session!.csrf_token}
+        onNavigate={(path, replace = false) => navigate(path, { replace })}
+      />
+    )
+  } else if (patientRoute && canReadPatients) {
+    const query = location.includes('?') ? location.slice(location.indexOf('?')) : ''
+    navigate(`/patients/${patientRoute.patientId}/summary${query}`, { replace: true })
+    content = null
+  } else if (activeModule === 'hospital') {
+    content = <HospitalDashboard canEdit={canEdit} canDelete={canDelete} csrfToken={session!.csrf_token} />
+  } else if (activeModule === 'bed-map') {
+    content = (
+      <BedMapDashboard
+        userId={user.id}
+        isNutritionist={user.roles.includes('nutricionista')}
+        canMutateTransfers={canMutatePatients}
+        csrfToken={session!.csrf_token}
+        onOpenPatient={canReadPatients ? openPatient : undefined}
+      />
+    )
+  } else if (activeModule === 'patients') {
+    content = (
+      <PatientsDashboard
+        canMutate={canMutatePatients}
+        canResolveActiveConflicts={user.roles.includes('jefatura')}
+        csrfToken={session!.csrf_token}
+        onOpenPatient={openPatient}
+        search={search}
+        onSearchChange={(next) => navigate(`/patients${next ? `?${next}` : ''}`, { replace: true })}
+      />
+    )
+  } else {
+    content = <AdministrationDashboard canManage={canDelete} csrfToken={session!.csrf_token} />
+  }
+
   return (
     <AppShell
       user={user}
       items={navigationItems}
-      activeModule={module}
-      onNavigate={setModule}
+      activeModule={activeModule}
+      onNavigate={(module) => navigate(MODULE_PATHS[module])}
       onLogout={() => void logout()}
     >
-      {module === 'hospital' ? (
-        <HospitalDashboard
-          canEdit={canEdit}
-          canDelete={canDelete}
-          csrfToken={session!.csrf_token}
-        />
-      ) : module === 'bed-map' ? (
-        <BedMapDashboard
-          userId={user.id}
-          isNutritionist={user.roles.includes('nutricionista')}
-          canMutateTransfers={canMutatePatients}
-          csrfToken={session!.csrf_token}
-        />
-      ) : module === 'patients' ? (
-        <PatientsDashboard
-          canMutate={canMutatePatients}
-          canResolveActiveConflicts={user.roles.includes('jefatura')}
-          csrfToken={session!.csrf_token}
-        />
-      ) : (
-        <AdministrationDashboard canManage={canDelete} csrfToken={session!.csrf_token} />
-      )}
+      {content}
     </AppShell>
   )
 }

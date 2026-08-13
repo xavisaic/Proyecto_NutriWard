@@ -19,12 +19,18 @@ from app.schemas.patient import (
     LocationAssignment,
     LocationRead,
     PatientCreate,
+    PatientChartSummary,
     PatientDetail,
     PatientIdentityUpdate,
     PatientListResponse,
     PatientReconcile,
     PotentialPatientMatchesResponse,
     UnidentifiedPatientCreate,
+    OperationalTimelineResponse,
+)
+from app.services.patient_chart_service import (
+    get_operational_timeline,
+    get_patient_chart_summary,
 )
 from app.services.patient_service import (
     assign_location,
@@ -126,6 +132,16 @@ def read_patient(
     return get_patient_detail(session, patient_id)
 
 
+@router.get("/patients/{patient_id}/chart-summary", response_model=PatientChartSummary)
+def read_patient_chart_summary(
+    patient_id: uuid.UUID,
+    _: PatientReader,
+    session: DatabaseSession,
+    admission_id: uuid.UUID | None = None,
+) -> PatientChartSummary:
+    return get_patient_chart_summary(session, patient_id, admission_id)
+
+
 @router.patch("/patients/{patient_id}/identity", response_model=PatientDetail)
 def update_patient_identity(
     patient_id: uuid.UUID,
@@ -197,6 +213,25 @@ def read_admission(
     session: DatabaseSession,
 ) -> AdmissionRead:
     return get_admission_detail(session, admission_id)
+
+
+@router.get(
+    "/admissions/{admission_id}/operational-timeline",
+    response_model=OperationalTimelineResponse,
+)
+def read_operational_timeline(
+    admission_id: uuid.UUID,
+    _: PatientReader,
+    session: DatabaseSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> OperationalTimelineResponse:
+    return get_operational_timeline(
+        session,
+        admission_id,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.patch("/admissions/{admission_id}/status", response_model=AdmissionRead)

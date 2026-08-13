@@ -243,6 +243,115 @@ export interface AdmissionList {
   total: number
 }
 
+export interface PatientChartAge {
+  value: number | null
+  unit: 'days' | 'months' | 'years' | null
+  is_estimated: boolean
+  reference_date: string
+  display: string
+}
+
+export interface PatientChartLocation {
+  id: string
+  care_unit_id: string
+  care_unit_code: string
+  care_unit_label: string | null
+  room_id: string
+  room_code: string
+  room_name: string
+  service_id: string
+  service_code: string
+  service_name: string
+  started_at: string
+  ended_at: string | null
+  reason: string | null
+  is_current: boolean
+}
+
+export interface PatientChartTransfer {
+  id: string
+  status: TransferStatus
+  transfer_mode: TransferMode
+  requested_at: string
+  request_reason: string | null
+  origin_service_id: string
+  origin_service_code: string
+  origin_service_name: string
+  destination_service_id: string
+  destination_service_code: string
+  destination_service_name: string
+}
+
+export interface PatientChartAdmission {
+  id: string
+  admission_identifier: string
+  status: AdmissionStatus
+  admitted_at: string
+  ended_at: string | null
+  end_reason: string | null
+  duration_days: number
+  is_historical: boolean
+  location: PatientChartLocation | null
+  bed_status: 'occupied' | 'unassigned' | 'released'
+  open_transfer: PatientChartTransfer | null
+  age_at_admission: PatientChartAge
+}
+
+export interface OperationalTimelineLocation {
+  care_unit_id: string | null
+  care_unit_code: string | null
+  care_unit_label: string | null
+  room_id: string | null
+  room_code: string | null
+  room_name: string | null
+  service_id: string
+  service_code: string
+  service_name: string
+}
+
+export interface OperationalTimelineEvent {
+  id: string
+  event_type: string
+  occurred_at: string
+  title: string
+  description: string
+  reason: string | null
+  status: string | null
+  origin: OperationalTimelineLocation | null
+  destination: OperationalTimelineLocation | null
+}
+
+export interface OperationalTimeline {
+  admission_id: string
+  items: OperationalTimelineEvent[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface PatientChartSummary {
+  patient: {
+    id: string
+    identity_status: IdentityStatus
+    display_name: string
+    temporary_identifier: string | null
+    rut: string | null
+    hospital_identifier: string | null
+    date_of_birth: string | null
+    date_of_birth_is_estimated: boolean
+    sex: Patient['sex']
+    phone: string | null
+    provisional_description: string | null
+    merged_into_patient_id: string | null
+    is_active: boolean
+    current_age: PatientChartAge
+  }
+  selected_admission: PatientChartAdmission | null
+  admissions: PatientChartAdmission[]
+  total_admissions: number
+  recent_operational_events: OperationalTimelineEvent[]
+}
+
 export type TransferMode = 'direct' | 'reception_tray'
 export type TransferStatus =
   | 'requested'

@@ -1,4 +1,9 @@
-# Frontend (Fase 4)
+# Frontend (Fase 8)
+
+La navegación principal está gobernada por URL. `/patients` muestra el listado y
+`/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
+Resumen, Movimientos e Historial son funcionales; las demás pestañas son placeholders
+sin llamadas API.
 
 ## Ejecución local
 

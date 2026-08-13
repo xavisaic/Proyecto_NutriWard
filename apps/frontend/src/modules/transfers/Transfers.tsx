@@ -395,12 +395,14 @@ export function ReceptionTray({
   csrfToken,
   refreshToken = 0,
   onMutation,
+  onOpenPatient,
 }: {
   serviceId: string
   canMutate: boolean
   csrfToken: string
   refreshToken?: number
   onMutation: () => void
+  onOpenPatient?: (patientId: string, admissionId?: string) => void
 }) {
   const [data, setData] = useState<TransferRequestList | null>(null)
   const [loading, setLoading] = useState(true)
@@ -528,6 +530,15 @@ export function ReceptionTray({
                         </Typography>
                         <Typography variant="body2"><strong>Motivo:</strong> {transfer.request_reason || 'Sin motivo informado'}</Typography>
                         <Typography variant="caption" color="text.secondary">{elapsed(transfer.requested_at)}</Typography>
+                        {onOpenPatient && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => onOpenPatient(transfer.patient.id, transfer.admission.id)}
+                          >
+                            Abrir ficha completa
+                          </Button>
+                        )}
                         {canMutate && (
                           <Stack direction="row" gap={1} flexWrap="wrap">
                             {transfer.status === 'pending_reception' && (
