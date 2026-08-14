@@ -1,12 +1,19 @@
-# Backend (Fase 8)
+# Backend (Fase 9)
 
-La ficha del paciente agrega dos proyecciones de sólo lectura:
+La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
+separada, autorizada sólo para `nutricionista` y `jefatura`:
 
 - `GET /api/v1/patients/{patient_id}/chart-summary`
 - `GET /api/v1/admissions/{admission_id}/operational-timeline`
+- `GET|POST /api/v1/admissions/{admission_id}/nutrition-care-encounters`
+- `GET|PATCH /api/v1/nutrition-care-encounters/{encounter_id}`
+- `POST /api/v1/nutrition-care-encounters/{encounter_id}/finalize|correct|cancel`
+- `GET /api/v1/admissions/{admission_id}/nutrition-latest`
+- `GET /api/v1/admissions/{admission_id}/nutrition-assessments|nutrition-prescriptions|nutrition-intake|nutrition-labs`
 
-Reutilizan las tablas existentes, requieren rol `administrador`, `jefatura` o
-`nutricionista`, y no exponen `audit_logs` ni persistencia clínica.
+La API clínica no expone `audit_logs`, exige CSRF en mutaciones y bloquea administrador y
+Alimentación con `403`. La cabeza Alembic es `20260813_0010`; el modelo completo se
+documenta en `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`.
 
 ## Ejecución local
 

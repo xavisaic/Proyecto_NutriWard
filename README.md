@@ -1,11 +1,11 @@
 # Proyecto NutriWard
 
-Base técnica completa hasta Fase 8 para una plataforma web de gestión nutricional clínica.
+Base técnica completa hasta Fase 9 para una plataforma web de gestión nutricional clínica.
 
-Fase 8 incorpora una ficha longitudinal navegable en `/patients/:patient_id/:tab`,
-con selector de hospitalización, Resumen, Movimientos e Historial funcionales. Los
-módulos clínico-nutricionales permanecen como placeholders sin persistencia. Ver
-`docs/planning/FASE-8-FICHA-PACIENTE-PESTANAS.md`.
+Fase 9 incorpora la ficha nutricional clínica estructurada por hospitalización, con
+atenciones versionadas, evaluación, antropometría, tamizajes, requerimientos, PES,
+prescripción, ingesta, exámenes y proyección clínica separada. Ver
+`docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`.
 
 ## Stack
 
@@ -56,6 +56,12 @@ módulos clínico-nutricionales permanecen como placeholders sin persistencia. V
 - Bandeja de recepción por servicio, aceptación con o sin cama y terminales historizados.
 - Sincronización de mapa y bandeja, privacidad operacional y cobertura/apoyo trazable.
 - Cancelación automática de traslados abiertos al terminar una hospitalización.
+- Atenciones nutricionales en borrador, finalizadas, correctivas o canceladas, con
+  concurrencia optimista e inmutabilidad clínica.
+- Ficha estructurada para adultos, pediatría, neonatología y embarazo.
+- Antropometría tipada, IMC y cambio de peso calculados en backend.
+- NRS-2002 y STRONGkids versionados; sin tamizaje neonatal o gestacional automático.
+- Requerimientos trazables, diagnósticos PES, prescripción, ingesta y exámenes manuales.
 
 ## Inicio con Docker
 
@@ -146,13 +152,13 @@ checksum del archivo en auditoría y no elimina registros ausentes del Excel.
 En PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase7.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts_verify_phase9.ps1
 ```
 
 En Linux/macOS:
 
 ```bash
-./scripts_verify_phase7.sh
+./scripts_verify_phase9.sh
 ```
 
 El verificador ejecuta pruebas backend y frontend, build, contrato OpenAPI, metadata,
@@ -161,8 +167,7 @@ está disponible.
 
 ## Alcance
 
-Fase 7 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
-hospitalizaciones, ubicación actual, mapa de camas y traslados directos o mediante
-bandeja de recepción.
-Evaluaciones nutricionales, diagnósticos, requerimientos, prescripciones, regímenes,
-raciones, etiquetas y otros datos clínico-nutricionales permanecen fuera de alcance.
+Fase 9 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+hospitalizaciones, mapa, traslados y ficha nutricional clínica estructurada. Raciones,
+cocina, integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
+balance nitrogenado y hoja horaria completa permanecen fuera de alcance.

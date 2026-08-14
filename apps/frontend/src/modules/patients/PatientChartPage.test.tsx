@@ -67,12 +67,14 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('Ficha del paciente', () => {
   it('muestra resumen, cabecera, episodios y movimientos recientes', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response(summary))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-latest')
+      ? response({ admission_id: 'admission-active', latest_encounter: null, latest_screening: null, nutritional_status: null, active_diagnoses: [], current_prescription: null, adopted_requirements: [], active_alerts: [], suggested_reassessment_at: null })
+      : response(summary))
     renderChart()
     expect(await screen.findByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Episodio' })).toHaveTextContent('ADM-ACTIVA')
     expect(screen.getByText('Inicio de hospitalización')).toBeInTheDocument()
-    expect(screen.getAllByText('No disponible en NutriWard en esta fase')).toHaveLength(2)
+    expect(await screen.findByText('Sin atención finalizada')).toBeInTheDocument()
   })
 
   it('normaliza una pestaña desconocida sin cargar placeholders', async () => {
@@ -89,10 +91,11 @@ describe('Ficha del paciente', () => {
       if (url.includes('/operational-timeline')) {
         return response({ admission_id: 'admission-active', items: summary.recent_operational_events, total: 1, page: 1, page_size: 20 })
       }
+      if (url.includes('/nutrition-assessments')) return response({ items: [], total: 0, page: 1, page_size: 20 })
       return response(summary)
     })
     renderChart('assessment')
-    expect(await screen.findByText(/Aquí se implementará la evaluación clínica/)).toBeInTheDocument()
+    expect(await screen.findByText('Sin evaluación finalizada')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/operational-timeline'))).toBe(false)
     cleanup()
     renderChart('movements')
@@ -101,9 +104,11 @@ describe('Ficha del paciente', () => {
   })
 
   it('explica Atenciones sin modalidad presencial o remota y diferencia Bitácora', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response(summary))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-care-encounters')
+      ? response({ items: [], total: 0, page: 1, page_size: 20 })
+      : response(summary))
     renderChart('care')
-    expect(await screen.findByText(/no registra modalidad presencial o remota/)).toBeInTheDocument()
+    expect(await screen.findByText(/no registran ubicación física ni modalidad presencial\/remota/)).toBeInTheDocument()
     cleanup()
     renderChart('logbook')
     expect(await screen.findByText(/independiente de la auditoría técnica/)).toBeInTheDocument()
