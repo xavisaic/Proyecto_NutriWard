@@ -24,3 +24,10 @@ clínica autorizada.
   alergias, exámenes, prescripciones ni observaciones.
 - Un futuro rol clínico de sólo lectura puede incorporarse ampliando `CLINICAL_ROLES` sin
   concederlo a las dependencias de mutación.
+
+## Extensión Fase 9.1
+
+La misma frontera protege diagnósticos médicos y antecedentes mórbidos. `nutricionista` y
+`jefatura` pueden crear registros y cambiar libremente su estado clínico o verificación,
+siempre con fuente, motivo, actor, fecha y versión. No existe borrado: los errores se
+marcan `entered_in_error`. La auditoría técnica no duplica nombres ni notas clínicas.

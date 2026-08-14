@@ -1,11 +1,15 @@
 # Proyecto NutriWard
 
-Base técnica completa hasta Fase 9 para una plataforma web de gestión nutricional clínica.
+Base técnica completa hasta Fase 9.1 para una plataforma web de gestión nutricional clínica.
 
 Fase 9 incorpora la ficha nutricional clínica estructurada por hospitalización, con
 atenciones versionadas, evaluación, antropometría, tamizajes, requerimientos, PES,
 prescripción, ingesta, exámenes y proyección clínica separada. Ver
 `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`.
+
+Fase 9.1 agrega diagnósticos médicos múltiples por hospitalización y antecedentes mórbidos
+longitudinales, con pegado masivo revisable, estados versionados e historial sin borrado.
+Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 
 ## Stack
 
@@ -62,6 +66,9 @@ prescripción, ingesta, exámenes y proyección clínica separada. Ver
 - Antropometría tipada, IMC y cambio de peso calculados en backend.
 - NRS-2002 y STRONGkids versionados; sin tamizaje neonatal o gestacional automático.
 - Requerimientos trazables, diagnósticos PES, prescripción, ingesta y exámenes manuales.
+- Diagnósticos médicos múltiples por episodio y antecedentes mórbidos reutilizables.
+- Pegado rápido de listas convertido en filas estructuradas, con CIE-10 opcional.
+- Cambio libre de estados con fuente, motivo, concurrencia optimista e historial íntegro.
 
 ## Inicio con Docker
 
@@ -167,7 +174,7 @@ está disponible.
 
 ## Alcance
 
-Fase 9 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
-hospitalizaciones, mapa, traslados y ficha nutricional clínica estructurada. Raciones,
+Fase 9.1 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+hospitalizaciones, mapa, traslados, ficha nutricional estructurada y contexto clínico. Raciones,
 cocina, integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
 balance nitrogenado y hoja horaria completa permanecen fuera de alcance.

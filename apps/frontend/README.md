@@ -1,4 +1,4 @@
-# Frontend (Fase 9)
+# Frontend (Fase 9.1)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
@@ -10,6 +10,11 @@ Hoja horaria y Bitácora continúan como placeholders.
 Administrador no ve pestañas ni resumen nutricional. Alimentación no accede a la ficha.
 El editor guarda borradores sólo mediante acción explícita, advierte cambios sin guardar,
 confirma la finalización y muestra conflictos de versión.
+
+La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas en hasta 100
+filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso
+por fila y actualizar estados con trazabilidad. Los antecedentes son longitudinales; los
+diagnósticos pertenecen al episodio. Resumen muestra los registros activos.
 
 ## Ejecución local
 

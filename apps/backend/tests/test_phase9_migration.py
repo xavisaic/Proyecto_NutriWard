@@ -53,7 +53,7 @@ def test_phase9_migration_upgrade_downgrade_and_constraints(tmp_path) -> None:
             text("INSERT INTO alembic_version(version_num) VALUES ('20260812_0009')")
         )
 
-    run_alembic(database_url, "upgrade", "head")
+    run_alembic(database_url, "upgrade", "20260813_0010")
     inspector = inspect(engine)
     assert CLINICAL_TABLES <= set(inspector.get_table_names())
     encounter_indexes = {row["name"] for row in inspector.get_indexes("nutritional_care_encounters")}
@@ -63,11 +63,11 @@ def test_phase9_migration_upgrade_downgrade_and_constraints(tmp_path) -> None:
 
     run_alembic(database_url, "downgrade", "20260812_0009")
     assert not (CLINICAL_TABLES & set(inspect(engine).get_table_names()))
-    run_alembic(database_url, "upgrade", "head")
+    run_alembic(database_url, "upgrade", "20260813_0010")
     assert CLINICAL_TABLES <= set(inspect(engine).get_table_names())
 
 
-def test_single_alembic_head_is_phase9() -> None:
+def test_single_alembic_head_continues_after_phase9() -> None:
     result = subprocess.run(
         ["alembic", "heads"],
         check=True,
@@ -77,4 +77,4 @@ def test_single_alembic_head_is_phase9() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260813_0010" in heads[0]
+    assert "20260813_0011" in heads[0]
