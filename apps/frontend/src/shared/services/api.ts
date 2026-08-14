@@ -352,6 +352,71 @@ export interface PatientChartSummary {
   recent_operational_events: OperationalTimelineEvent[]
 }
 
+export type NutritionEncounterStatus = 'draft' | 'finalized' | 'corrected' | 'cancelled'
+export type NutritionPopulation = 'adult' | 'pediatric' | 'neonatal' | 'pregnancy'
+
+export interface NutritionEncounterSummary {
+  id: string
+  admission_id: string
+  encounter_datetime: string
+  encounter_type: string
+  author_professional_id: string
+  author_name: string
+  status: NutritionEncounterStatus
+  clinical_summary: string | null
+  finalized_at: string | null
+  corrected_encounter_id: string | null
+  version: number
+}
+
+export interface NutritionEncounterList {
+  items: NutritionEncounterSummary[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface NutritionEncounterRead {
+  encounter: NutritionEncounterSummary & {
+    reason_for_assessment: string | null
+    information_source: string | null
+    correction_reason: string | null
+    cancellation_reason: string | null
+  }
+  author_name: string
+  finalized_by_name: string | null
+  assessment: Record<string, unknown> | null
+  context_items: Array<Record<string, unknown>>
+  anthropometry: Array<Record<string, unknown>>
+  screenings: Array<Record<string, unknown>>
+  requirements: Array<Record<string, unknown>>
+  diagnoses: Array<Record<string, unknown>>
+  prescription: (Record<string, unknown> & { meal_times?: Array<Record<string, unknown>> }) | null
+  monitoring: Array<Record<string, unknown>>
+  intake: Array<Record<string, unknown>>
+  labs: Array<Record<string, unknown>>
+  alerts: Array<Record<string, unknown>>
+}
+
+export interface NutritionProjectionList {
+  items: Array<Record<string, unknown>>
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface NutritionLatest {
+  admission_id: string
+  latest_encounter: (Record<string, unknown> & { professional_name?: string }) | null
+  latest_screening: Record<string, unknown> | null
+  nutritional_status: string | null
+  active_diagnoses: Array<Record<string, unknown>>
+  current_prescription: Record<string, unknown> | null
+  adopted_requirements: Array<Record<string, unknown>>
+  active_alerts: Array<Record<string, unknown>>
+  suggested_reassessment_at: string | null
+}
+
 export type TransferMode = 'direct' | 'reception_tray'
 export type TransferStatus =
   | 'requested'

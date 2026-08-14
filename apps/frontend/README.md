@@ -1,9 +1,15 @@
-# Frontend (Fase 8)
+# Frontend (Fase 9)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
-Resumen, Movimientos e Historial son funcionales; las demás pestañas son placeholders
-sin llamadas API.
+Resumen, Atenciones, Evaluación, Prescripción, Minutas e ingesta, Exámenes, Movimientos e
+Historial son funcionales. Atenciones contiene el editor clínico de diez secciones; las
+otras pestañas clínicas son proyecciones de atenciones finalizadas. Balance nitrogenado,
+Hoja horaria y Bitácora continúan como placeholders.
+
+Administrador no ve pestañas ni resumen nutricional. Alimentación no accede a la ficha.
+El editor guarda borradores sólo mediante acción explícita, advierte cambios sin guardar,
+confirma la finalización y muestra conflictos de versión.
 
 ## Ejecución local
 

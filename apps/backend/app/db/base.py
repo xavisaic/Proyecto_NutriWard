@@ -10,6 +10,22 @@ from app.models.hospital_service import HospitalService  # noqa: F401
 from app.models.nutritionist_service_assignment import (  # noqa: F401
     NutritionistServiceAssignment,
 )
+from app.models.nutrition import (  # noqa: F401
+    NutritionalAlert,
+    NutritionalAnthropometricMeasurement,
+    NutritionalAssessment,
+    NutritionalCareEncounter,
+    NutritionalClinicalContextItem,
+    NutritionalDiagnosis,
+    NutritionalIntakeRecord,
+    NutritionalLabObservation,
+    NutritionalMonitoringRecord,
+    NutritionalPrescription,
+    NutritionalPrescriptionMealTime,
+    NutritionalRequirementCalculation,
+    NutritionalScreening,
+    NutritionalScreeningAnswer,
+)
 from app.models.patient import Patient  # noqa: F401
 from app.models.patient_location_history import PatientLocationHistory  # noqa: F401
 from app.models.patient_transfer_request import PatientTransferRequest  # noqa: F401

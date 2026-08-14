@@ -48,6 +48,7 @@ import {
 } from '../../shared/services/api'
 import { IdentityDialog, LocationDialog } from './PatientsDashboard'
 import { MovePatientDialog } from '../transfers/Transfers'
+import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
 
 const CANONICAL_TABS = [
   'summary',
@@ -197,7 +198,7 @@ function TimelineList({ events }: { events: OperationalTimelineEvent[] }) {
   )
 }
 
-function SummaryTab({ summary }: { summary: PatientChartSummary }) {
+function SummaryTab({ summary, showNutrition }: { summary: PatientChartSummary, showNutrition: boolean }) {
   const admission = summary.selected_admission
   return (
     <Stack spacing={2.5}>
@@ -251,14 +252,7 @@ function SummaryTab({ summary }: { summary: PatientChartSummary }) {
           ? <TimelineList events={summary.recent_operational_events} />
           : <EmptyState title="Sin movimientos" description="El episodio no tiene movimientos operacionales registrados." />}
       </SectionCard>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <SectionCard title="Régimen"><Typography color="text.secondary">No disponible en NutriWard en esta fase</Typography></SectionCard>
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <SectionCard title="Última evaluación"><Typography color="text.secondary">No disponible en NutriWard en esta fase</Typography></SectionCard>
-        </Grid>
-      </Grid>
+      {showNutrition && admission ? <NutritionSummaryCard admissionId={admission.id} /> : null}
     </Stack>
   )
 }
@@ -385,6 +379,7 @@ export function PatientChartPage({
   const [moveOpen, setMoveOpen] = useState(false)
   const sequence = useRef(0)
   const canMutate = roles.some((role) => role === 'jefatura' || role === 'nutricionista')
+  const canReadClinical = canMutate
 
   const load = useCallback(async () => {
     const current = ++sequence.current
@@ -463,7 +458,7 @@ export function PatientChartPage({
     )
     await load()
   }
-  const selectedPlaceholder = tab !== 'summary' && tab !== 'movements' && tab !== 'history'
+  const selectedPlaceholder = tab === 'nitrogen-balance' || tab === 'hourly-sheet' || tab === 'logbook'
     ? PLACEHOLDERS[tab]
     : null
 
@@ -563,7 +558,16 @@ export function PatientChartPage({
           {allowedTabs.map((item) => <Tab key={item} value={item} label={TAB_LABELS[item]} />)}
         </Tabs>
       </Box>
-      {tab === 'summary' ? <SummaryTab summary={summary} /> : null}
+      {tab === 'summary' ? <SummaryTab summary={summary} showNutrition={canReadClinical} /> : null}
+      {canReadClinical && admission && ['care', 'assessment', 'prescription', 'intake', 'labs'].includes(tab) ? (
+        <NutritionClinicalTab
+          tab={tab as 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'}
+          admissionId={admission.id}
+          historical={admission.is_historical}
+          csrfToken={csrfToken}
+          onChanged={() => void load()}
+        />
+      ) : null}
       {tab === 'movements' ? <MovementsTab admissionId={admission?.id ?? null} /> : null}
       {tab === 'history' ? (
         <HistoryTab

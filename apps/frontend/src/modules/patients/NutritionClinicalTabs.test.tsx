@@ -1,0 +1,73 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
+
+function response(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+const emptyList = { items: [], total: 0, page: 1, page_size: 20 }
+
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+describe('Ficha nutricional clínica', () => {
+  it('crea un borrador explícito, navega secciones y adapta el tamizaje por población', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'POST') return response({ encounter: { id: 'enc-1', admission_id: 'adm-1', encounter_datetime: '2026-08-13T10:00:00Z', encounter_type: 'initial_assessment', author_professional_id: 'user-1', author_name: 'Nutricionista', status: 'draft', clinical_summary: null, finalized_at: null, corrected_encounter_id: null, version: 1, reason_for_assessment: null, information_source: 'combined', correction_reason: null, cancellation_reason: null }, author_name: 'Nutricionista', finalized_by_name: null, assessment: null, context_items: [], anthropometry: [], screenings: [], requirements: [], diagnoses: [], prescription: null, monitoring: [], intake: [], labs: [], alerts: [] }, 201)
+      return response(emptyList)
+    })
+    render(<NutritionClinicalTab tab="care" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Nueva atención nutricional' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+    await userEvent.click(screen.getAllByRole('combobox')[2])
+    await userEvent.click(screen.getByRole('option', { name: 'Neonatología' }))
+    await userEvent.click(screen.getByRole('button', { name: '4' }))
+    expect(screen.getByText(/Predeterminada para Neonatología: none/)).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveTextContent('Sin herramienta definida')
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(createCall?.[1]?.headers).toBeDefined()
+    expect(JSON.parse(String(createCall?.[1]?.body)).screenings[0].tool_code).toBe('none')
+  })
+
+  it('impide edición en episodio histórico y muestra sólo lectura', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
+    render(<NutritionClinicalTab tab="care" admissionId="adm-old" historical csrfToken="csrf" onChanged={vi.fn()} />)
+    expect(await screen.findByText('Episodio histórico · Solo lectura. Las atenciones finalizadas permanecen disponibles.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Nueva atención nutricional' })).not.toBeInTheDocument()
+  })
+
+  it('proyecta resumen finalizado, alertas y PES sin exponer auditoría', async () => {
+    const latest = {
+      admission_id: 'adm-1',
+      latest_encounter: { id: 'enc-1', finalized_at: '2026-08-13T10:00:00Z', professional_name: 'Ana Nutricionista' },
+      latest_screening: { tool_code: 'nrs_2002', total_score: '3.00' },
+      nutritional_status: 'Riesgo nutricional',
+      active_diagnoses: [{ id: 'dx-1', generated_statement: 'Ingesta insuficiente relacionado con apetito, evidenciado por consumo bajo' }],
+      current_prescription: null,
+      adopted_requirements: [],
+      active_alerts: [{ id: 'alert-1', severity: 'warning', description: 'Alergia informada', source: 'trakcare_manual', verification_status: 'unverified' }],
+      suggested_reassessment_at: '2026-08-15T10:00:00Z',
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(latest))
+    render(<NutritionSummaryCard admissionId="adm-1" />)
+    expect(await screen.findByText(/Alergia informada/)).toHaveTextContent('unverified')
+    expect(screen.getByText('Ana Nutricionista')).toBeInTheDocument()
+    expect(screen.getByText(/Ingesta insuficiente relacionado/)).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('audit_logs')
+  })
+
+  it('muestra advertencia TrakCare y alcance limitado de Minutas', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-labs')
+      ? response({ items: [{ id: 'lab-1', sampled_at: '2026-08-13T08:00:00Z', test_name: 'Glicemia', value: '110', unit: 'mg/dL', reference_range: null, source: 'trakcare_manual' }], total: 1, page: 1, page_size: 50 })
+      : response(emptyList))
+    const { rerender } = render(<NutritionClinicalTab tab="labs" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    expect(await screen.findByText('Dato transcrito manualmente desde TrakCare')).toBeInTheDocument()
+    rerender(<NutritionClinicalTab tab="intake" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    expect(await screen.findByText(/Minutas, raciones y producción de cocina están pendientes/)).toBeInTheDocument()
+  })
+})
