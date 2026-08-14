@@ -6,6 +6,12 @@ from app.models.admission import Admission  # noqa: F401
 from app.models.admission_status_history import AdmissionStatusHistory  # noqa: F401
 from app.models.care_unit import CareUnit  # noqa: F401
 from app.models.care_unit_layout_position import CareUnitLayoutPosition  # noqa: F401
+from app.models.clinical_context import (  # noqa: F401
+    AdmissionDiagnosis,
+    AdmissionDiagnosisStatusHistory,
+    PatientCondition,
+    PatientConditionStatusHistory,
+)
 from app.models.hospital_service import HospitalService  # noqa: F401
 from app.models.nutritionist_service_assignment import (  # noqa: F401
     NutritionistServiceAssignment,

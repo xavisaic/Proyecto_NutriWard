@@ -119,6 +119,7 @@ describe('Ficha del paciente', () => {
     const navigate = renderChart('history', '?admission_id=admission-active', ['administrador'])
     expect((await screen.findAllByRole('button', { name: 'Ver episodio' })).length).toBe(2)
     expect(screen.queryByRole('tab', { name: 'Evaluación' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Diagnósticos y antecedentes' })).not.toBeInTheDocument()
     await userEvent.click(screen.getAllByRole('button', { name: 'Ver episodio' })[1])
     expect(navigate).toHaveBeenCalledWith(expect.stringContaining('/summary?admission_id=admission-old'))
   })

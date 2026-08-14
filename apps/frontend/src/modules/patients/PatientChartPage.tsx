@@ -49,9 +49,11 @@ import {
 import { IdentityDialog, LocationDialog } from './PatientsDashboard'
 import { MovePatientDialog } from '../transfers/Transfers'
 import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
+import { ClinicalContextSummaryCard, ClinicalContextTab } from './ClinicalContextTab'
 
 const CANONICAL_TABS = [
   'summary',
+  'clinical-context',
   'care',
   'assessment',
   'prescription',
@@ -68,6 +70,7 @@ type ChartTab = typeof CANONICAL_TABS[number]
 
 const TAB_LABELS: Record<ChartTab, string> = {
   summary: 'Resumen',
+  'clinical-context': 'Diagnósticos y antecedentes',
   care: 'Atenciones',
   assessment: 'Evaluación',
   prescription: 'Prescripción',
@@ -81,11 +84,11 @@ const TAB_LABELS: Record<ChartTab, string> = {
 }
 
 const CLINICAL_TABS = new Set<ChartTab>([
-  'care', 'assessment', 'prescription', 'intake', 'labs',
+  'clinical-context', 'care', 'assessment', 'prescription', 'intake', 'labs',
   'nitrogen-balance', 'hourly-sheet', 'logbook',
 ])
 
-const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'movements' | 'history'>, { title: string; description: string }> = {
+const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 'movements' | 'history'>, { title: string; description: string }> = {
   care: {
     title: 'Atenciones nutricionales',
     description: 'Una atención será una instancia temporal de trabajo nutricional vinculada al episodio. Podrá agrupar evaluaciones, cambios de prescripción, revisiones de ingesta o notas relacionadas. No implica presencia física y no registra modalidad presencial o remota.',
@@ -252,6 +255,7 @@ function SummaryTab({ summary, showNutrition }: { summary: PatientChartSummary, 
           ? <TimelineList events={summary.recent_operational_events} />
           : <EmptyState title="Sin movimientos" description="El episodio no tiene movimientos operacionales registrados." />}
       </SectionCard>
+      {showNutrition && admission ? <ClinicalContextSummaryCard admissionId={admission.id} /> : null}
       {showNutrition && admission ? <NutritionSummaryCard admissionId={admission.id} /> : null}
     </Stack>
   )
@@ -559,6 +563,15 @@ export function PatientChartPage({
         </Tabs>
       </Box>
       {tab === 'summary' ? <SummaryTab summary={summary} showNutrition={canReadClinical} /> : null}
+      {canReadClinical && admission && tab === 'clinical-context' ? (
+        <ClinicalContextTab
+          admissionId={admission.id}
+          patientId={summary.patient.id}
+          historical={admission.is_historical}
+          csrfToken={csrfToken}
+          onChanged={() => void load()}
+        />
+      ) : null}
       {canReadClinical && admission && ['care', 'assessment', 'prescription', 'intake', 'labs'].includes(tab) ? (
         <NutritionClinicalTab
           tab={tab as 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'}

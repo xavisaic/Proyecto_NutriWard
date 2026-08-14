@@ -417,6 +417,61 @@ export interface NutritionLatest {
   suggested_reassessment_at: string | null
 }
 
+export interface ClinicalStatusHistory {
+  id: string
+  sequence_number: number
+  from_clinical_status: string | null
+  to_clinical_status: string
+  from_verification_status: string | null
+  to_verification_status: string
+  reason: string
+  source: string
+  changed_by_user_id: string
+  changed_at: string
+  version: number
+}
+
+export interface PatientCondition {
+  id: string
+  patient_id: string
+  condition_name: string
+  code_system: string | null
+  code: string | null
+  clinical_status: string
+  verification_status: string
+  onset_date: string | null
+  resolved_on: string | null
+  source: string
+  note: string | null
+  version: number
+  history: ClinicalStatusHistory[]
+}
+
+export interface AdmissionDiagnosis {
+  id: string
+  admission_id: string
+  diagnosis_name: string
+  code_system: string | null
+  code: string | null
+  diagnosis_type: string
+  clinical_status: string
+  verification_status: string
+  present_on_admission: boolean
+  diagnosed_at: string
+  resolved_at: string | null
+  source: string
+  note: string | null
+  version: number
+  history: ClinicalStatusHistory[]
+}
+
+export interface ClinicalContext {
+  admission_id: string
+  patient_id: string
+  diagnoses: AdmissionDiagnosis[]
+  conditions: PatientCondition[]
+}
+
 export type TransferMode = 'direct' | 'reception_tray'
 export type TransferStatus =
   | 'requested'
