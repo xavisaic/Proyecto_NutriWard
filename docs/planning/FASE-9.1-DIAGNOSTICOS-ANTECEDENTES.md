@@ -81,6 +81,7 @@ Endpoints:
 
 ## Fuera de alcance
 
-Esta fase no implementa conciliación de medicamentos, alergias, cirugías, antecedentes
+Esta fase no implementa conciliación de medicamentos, cirugías, antecedentes
 familiares, importación HL7/FHIR, autocompletado CIE-10, validación por rol médico ni
-inferencia automática de diagnósticos a partir de texto.
+inferencia automática de diagnósticos a partir de texto. Las alergias e intolerancias se
+incorporan separadamente en la Fase 9.2.

@@ -38,6 +38,7 @@ import {
   PatientCondition,
   apiRequest,
 } from '../../shared/services/api'
+import { AllergyIntoleranceSection } from './AllergyIntoleranceSection'
 
 type RecordKind = 'diagnosis' | 'condition'
 type ClinicalRecord = AdmissionDiagnosis | PatientCondition
@@ -351,6 +352,12 @@ export function ClinicalContextTab({ admissionId, patientId, historical, csrfTok
         <RecordTable kind="condition" rows={data.conditions} historical={historical} onEdit={(record) => setEditing({ kind: 'condition', record })} />
       </Stack>
     </SectionCard>
+    <AllergyIntoleranceSection
+      admissionId={admissionId}
+      historical={historical}
+      csrfToken={csrfToken}
+      onChanged={onChanged}
+    />
     <HistoryPanels data={data} />
     {bulkKind && <BulkEntryDialog kind={bulkKind} open admissionId={admissionId} patientId={patientId} csrfToken={csrfToken} onClose={() => setBulkKind(null)} onSaved={afterSaved} />}
     {editing && <StatusDialog kind={editing.kind} record={editing.record} csrfToken={csrfToken} onClose={() => setEditing(null)} onSaved={afterSaved} />}

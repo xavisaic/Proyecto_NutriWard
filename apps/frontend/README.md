@@ -1,4 +1,4 @@
-# Frontend (Fase 9.1)
+# Frontend (Fase 9.2)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
@@ -15,6 +15,12 @@ La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas 
 filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso
 por fila y actualizar estados con trazabilidad. Los antecedentes son longitudinales; los
 diagnósticos pertenecen al episodio. Resumen muestra los registros activos.
+
+En la misma pestaña, **Alergias e intolerancias** permite pegado masivo con revisión por
+fila, categoría, tipo, criticidad, verificación, múltiples reacciones e historial. También
+distingue explícitamente entre “sin alergias conocidas”, “información no disponible” y
+“aún no revisado”. Alimentación no abre la ficha: el panel de una cama ocupada presenta
+únicamente la alerta alimentaria mínima necesaria para preparar una dieta segura.
 
 ## Ejecución local
 

@@ -174,7 +174,9 @@ está disponible.
 
 ## Alcance
 
-Fase 9.1 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
-hospitalizaciones, mapa, traslados, ficha nutricional estructurada y contexto clínico. Raciones,
+Fase 9.2 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+hospitalizaciones, mapa, traslados, ficha nutricional estructurada, contexto clínico y el
+registro longitudinal de alergias e intolerancias. Alimentación recibe en el mapa de camas
+una proyección mínima de seguridad que contiene sólo riesgos alimentarios activos. Raciones,
 cocina, integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
 balance nitrogenado y hoja horaria completa permanecen fuera de alcance.

@@ -50,6 +50,7 @@ import { IdentityDialog, LocationDialog } from './PatientsDashboard'
 import { MovePatientDialog } from '../transfers/Transfers'
 import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
 import { ClinicalContextSummaryCard, ClinicalContextTab } from './ClinicalContextTab'
+import { AllergySummaryAlert } from './AllergyIntoleranceSection'
 
 const CANONICAL_TABS = [
   'summary',
@@ -250,6 +251,7 @@ function SummaryTab({ summary, showNutrition }: { summary: PatientChartSummary, 
           El paciente permanece en su ubicación de origen hasta la asignación efectiva.
         </Alert>
       )}
+      {showNutrition && admission ? <AllergySummaryAlert admissionId={admission.id} /> : null}
       <SectionCard title="Últimos movimientos" description="Vista breve del episodio seleccionado.">
         {summary.recent_operational_events.length
           ? <TimelineList events={summary.recent_operational_events} />

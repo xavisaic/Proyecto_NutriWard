@@ -21,7 +21,8 @@ clínica autorizada.
 
 - Ocultar controles en React no es una frontera de seguridad; el backend valida cada ruta.
 - Alimentación conserva acceso operacional al mapa/bandeja, pero no recibe diagnósticos,
-  alergias, exámenes, prescripciones ni observaciones.
+  exámenes, prescripciones ni observaciones. La extensión 9.2 autoriza exclusivamente una
+  proyección de seguridad con alergias/intolerancias alimentarias activas.
 - Un futuro rol clínico de sólo lectura puede incorporarse ampliando `CLINICAL_ROLES` sin
   concederlo a las dependencias de mutación.
 
@@ -31,3 +32,16 @@ La misma frontera protege diagnósticos médicos y antecedentes mórbidos. `nutr
 `jefatura` pueden crear registros y cambiar libremente su estado clínico o verificación,
 siempre con fuente, motivo, actor, fecha y versión. No existe borrado: los errores se
 marcan `entered_in_error`. La auditoría técnica no duplica nombres ni notas clínicas.
+
+## Extensión Fase 9.2
+
+Las alergias e intolerancias completas mantienen la frontera clínica: sólo `nutricionista`
+y `jefatura` leen o mutan registros, reacciones, fuentes, notas e historial. Los errores no
+se borran; se marcan `entered_in_error`, pierden estado clínico y quedan fuera de alertas.
+
+`alimentacion` puede consultar `food-safety-allergies` únicamente para hospitalizaciones
+conocidas desde el mapa de camas. La respuesta se limita a sustancia alimentaria activa,
+tipo, criticidad y manifestación/gravedad de la reacción. Excluye medicamentos, ambiente,
+biológicos, fuentes, notas, códigos, fechas, actores e historial. `administrador` no recibe
+esta excepción. Si el ingreso no fue revisado o la información no está disponible, el
+panel muestra una advertencia operacional y no infiere ausencia de riesgo.

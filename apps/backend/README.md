@@ -1,4 +1,4 @@
-# Backend (Fase 9.1)
+# Backend (Fase 9.2)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -15,11 +15,19 @@ separada, autorizada sólo para `nutricionista` y `jefatura`:
 - `POST /api/v1/admissions/{admission_id}/diagnoses`
 - `PATCH /api/v1/patient-conditions/{condition_id}/status`
 - `PATCH /api/v1/admission-diagnoses/{diagnosis_id}/status`
+- `GET|POST /api/v1/admissions/{admission_id}/allergy-intolerances`
+- `PATCH /api/v1/allergy-intolerances/{allergy_id}/status`
+- `POST /api/v1/allergy-intolerances/{allergy_id}/reactions`
+- `POST /api/v1/admissions/{admission_id}/allergy-review-assertions`
+- `GET /api/v1/admissions/{admission_id}/food-safety-allergies`
 
 La API clínica no expone `audit_logs`, exige CSRF en mutaciones y bloquea administrador y
-Alimentación con `403`. La cabeza Alembic es `20260813_0011`; el modelo se documenta en
+Alimentación con `403`. La única excepción es la proyección de seguridad alimentaria de
+solo lectura: Alimentación puede consultar sustancia, tipo, criticidad y manifestaciones
+alimentarias activas, sin fuentes, notas, actores ni alergias farmacológicas. La cabeza
+Alembic es `20260815_0012`; el modelo se documenta en
 `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md` y
-`docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
+`docs/planning/FASE-9.2-ALERGIAS-INTOLERANCIAS.md`.
 
 ## Ejecución local
 

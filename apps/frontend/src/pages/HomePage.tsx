@@ -123,6 +123,7 @@ export function HomePage() {
         userId={user.id}
         isNutritionist={user.roles.includes('nutricionista')}
         canMutateTransfers={canMutatePatients}
+        canReadFoodSafety={user.roles.some((role) => ['jefatura', 'nutricionista', 'alimentacion'].includes(role))}
         csrfToken={session!.csrf_token}
         onOpenPatient={canReadPatients ? openPatient : undefined}
       />

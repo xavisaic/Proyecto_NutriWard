@@ -472,6 +472,81 @@ export interface ClinicalContext {
   conditions: PatientCondition[]
 }
 
+export interface AllergyReaction {
+  id: string
+  manifestation: string
+  severity: string | null
+  occurred_at: string | null
+  exposure_route: string | null
+  note: string | null
+  created_at: string
+}
+
+export interface AllergyStatusHistory {
+  id: string
+  sequence_number: number
+  from_clinical_status: string | null
+  to_clinical_status: string | null
+  from_verification_status: string | null
+  to_verification_status: string
+  from_criticality: string | null
+  to_criticality: string
+  reason: string
+  source: string
+  changed_at: string
+  version: number
+}
+
+export interface AllergyIntolerance {
+  id: string
+  patient_id: string
+  asserted_admission_id: string | null
+  substance_name: string
+  code_system: string | null
+  code: string | null
+  allergy_type: string | null
+  category: string
+  clinical_status: string | null
+  verification_status: string
+  criticality: string
+  onset_date: string | null
+  source: string
+  note: string | null
+  version: number
+  reactions: AllergyReaction[]
+  history: AllergyStatusHistory[]
+}
+
+export interface AllergyReviewAssertion {
+  id: string
+  patient_id: string
+  admission_id: string
+  category: string
+  assertion: string
+  source: string
+  note: string | null
+  recorded_at: string
+}
+
+export interface AllergyContext {
+  admission_id: string
+  patient_id: string
+  items: AllergyIntolerance[]
+  review_assertions: AllergyReviewAssertion[]
+}
+
+export interface FoodSafetyAllergyProjection {
+  admission_id: string
+  review_status: 'active_food_risks' | 'no_known' | 'not_reviewed' | 'information_unavailable' | 'no_active_food_risks'
+  items: Array<{
+    id: string
+    substance_name: string
+    allergy_type: string | null
+    criticality: string
+    reactions: Array<{ manifestation: string; severity: string | null }>
+  }>
+}
+
 export type TransferMode = 'direct' | 'reception_tray'
 export type TransferStatus =
   | 'requested'

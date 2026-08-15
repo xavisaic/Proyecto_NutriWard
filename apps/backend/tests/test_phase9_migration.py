@@ -77,4 +77,4 @@ def test_single_alembic_head_continues_after_phase9() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260813_0011" in heads[0]
+    assert "20260815_0012" in heads[0]

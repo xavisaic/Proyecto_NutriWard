@@ -34,6 +34,7 @@ import {
   NutritionistServiceAssignmentList,
 } from '../../shared/services/api'
 import { MovePatientDialog, ReceptionTray } from '../transfers/Transfers'
+import { FoodSafetyAllergyPanel } from '../patients/AllergyIntoleranceSection'
 
 const REFRESH_INTERVAL_MS = 45_000
 const ALL_ROOMS = 'all'
@@ -43,6 +44,7 @@ interface BedMapDashboardProps {
   userId?: string
   isNutritionist?: boolean
   canMutateTransfers?: boolean
+  canReadFoodSafety?: boolean
   csrfToken?: string
   onOpenPatient?: (patientId: string, admissionId?: string) => void
 }
@@ -379,6 +381,7 @@ function OccupancyDrawer({
   selection,
   onClose,
   canMove,
+  canReadFoodSafety,
   onMove,
   onOpenPatient,
 }: {
@@ -386,6 +389,7 @@ function OccupancyDrawer({
   selection: Selection | null
   onClose: () => void
   canMove: boolean
+  canReadFoodSafety: boolean
   onMove: () => void
   onOpenPatient?: (patientId: string, admissionId?: string) => void
 }) {
@@ -442,6 +446,7 @@ function OccupancyDrawer({
                 </Typography>
               </Alert>
             )}
+            {canReadFoodSafety && <FoodSafetyAllergyPanel admissionId={occupancy.admission.id} />}
             <Alert severity="info">Régimen: No disponible en esta fase</Alert>
             {onOpenPatient && (
               <Button
@@ -464,6 +469,7 @@ export function BedMapDashboard({
   userId,
   isNutritionist = false,
   canMutateTransfers = false,
+  canReadFoodSafety = false,
   csrfToken = '',
   onOpenPatient,
 }: BedMapDashboardProps = {}) {
@@ -832,6 +838,7 @@ export function BedMapDashboard({
         selection={selection}
         onClose={closePanel}
         canMove={canMutateTransfers}
+        canReadFoodSafety={canReadFoodSafety}
         onMove={() => setMoveOpen(true)}
         onOpenPatient={onOpenPatient}
       />

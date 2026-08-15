@@ -2,6 +2,12 @@ from sqlmodel import SQLModel
 
 # Import models here so Alembic/metadata can discover every table.
 from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.allergy import (  # noqa: F401
+    AllergyIntoleranceReaction,
+    AllergyIntoleranceStatusHistory,
+    PatientAllergyIntolerance,
+    PatientAllergyReviewAssertion,
+)
 from app.models.admission import Admission  # noqa: F401
 from app.models.admission_status_history import AdmissionStatusHistory  # noqa: F401
 from app.models.care_unit import CareUnit  # noqa: F401

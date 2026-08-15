@@ -40,7 +40,7 @@ def test_phase9_1_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
         connection.execute(text("INSERT INTO alembic_version(version_num) VALUES ('20260813_0010')"))
 
-    run_alembic(database_url, "upgrade", "head")
+    run_alembic(database_url, "upgrade", "20260813_0011")
     inspector = inspect(engine)
     assert PHASE9_1_TABLES <= set(inspector.get_table_names())
     diagnosis_checks = {row["name"] for row in inspector.get_check_constraints("admission_diagnoses")}
@@ -50,15 +50,15 @@ def test_phase9_1_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
 
     run_alembic(database_url, "downgrade", "20260813_0010")
     assert not (PHASE9_1_TABLES & set(inspect(engine).get_table_names()))
-    run_alembic(database_url, "upgrade", "head")
+    run_alembic(database_url, "upgrade", "20260813_0011")
     assert PHASE9_1_TABLES <= set(inspect(engine).get_table_names())
 
 
-def test_single_alembic_head_is_phase9_1() -> None:
+def test_single_alembic_head_continues_after_phase9_1() -> None:
     result = subprocess.run(
         ["alembic", "heads"], check=True,
         cwd=os.path.dirname(os.path.dirname(__file__)), capture_output=True, text=True,
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260813_0011" in heads[0]
+    assert "20260815_0012" in heads[0]

@@ -315,6 +315,30 @@ describe('mapa de camas', () => {
     expect(bed).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('muestra a Alimentación sólo el riesgo alimentario mínimo en el panel', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/hospital/structure')) return response(structure)
+      if (url.includes('/bed-map')) return response(map)
+      if (url.includes('/food-safety-allergies')) return response({
+        admission_id: map.rooms[0].beds[1].occupancy!.admission.id,
+        review_status: 'active_food_risks',
+        items: [{
+          id: 'risk-1', substance_name: 'Maní', allergy_type: 'allergy', criticality: 'high',
+          reactions: [{ manifestation: 'Anafilaxia', severity: 'severe' }],
+        }],
+      })
+      return response({})
+    })
+    render(<BedMapDashboard canReadFoodSafety />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Cama 02, ocupada por Ana Pérez' }))
+    const panel = await screen.findByRole('region', { name: 'Detalle de ocupación' })
+    expect(await within(panel).findByText('Riesgo alimentario activo')).toBeInTheDocument()
+    expect(within(panel).getByText(/Maní · Alergia · criticidad alta/)).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/food-safety-allergies'))).toBe(true)
+    expect(within(panel).queryByText(/fuente|penicilina/i)).not.toBeInTheDocument()
+  })
+
   it('una cama libre es operable por teclado sin abrir panel ni lanzar consultas', async () => {
     const fetchMock = mockApi()
     render(<BedMapDashboard />)
