@@ -123,3 +123,37 @@ class AdmissionDiagnosisStatusHistory(SQLModel, table=True):
     changed_by_user_id: uuid.UUID = Field(foreign_key="users.id")
     changed_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True), index=True)
     version: int
+
+
+class AdmissionClinicalHistoryVersion(SQLModel, table=True):
+    __tablename__ = "admission_clinical_history_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "admission_id", "version", name="uq_admission_clinical_history_version"
+        ),
+        CheckConstraint(
+            "source IN ('trakcare_manual','clinical_record','care_team','patient',"
+            "'family_or_caregiver','combined','other')",
+            name="ck_admission_clinical_history_source",
+        ),
+        CheckConstraint(
+            "version > 0", name="ck_admission_clinical_history_version_positive"
+        ),
+        Index(
+            "ix_admission_clinical_history_admission_version",
+            "admission_id",
+            "version",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    admission_id: uuid.UUID = Field(foreign_key="admissions.id", index=True)
+    version: int
+    narrative: str = Field(max_length=10000)
+    event_start_date: date | None = None
+    source: str = Field(max_length=80)
+    change_reason: str | None = Field(default=None, max_length=1000)
+    recorded_by_user_id: uuid.UUID = Field(foreign_key="users.id")
+    recorded_at: datetime = Field(
+        default_factory=utc_now, sa_type=DateTime(timezone=True), index=True
+    )

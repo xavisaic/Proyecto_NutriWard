@@ -5,6 +5,9 @@ from fastapi import APIRouter, Depends, status
 
 from app.api.dependencies import CurrentSession, DatabaseSession, require_roles, require_roles_with_csrf
 from app.schemas.clinical_context import (
+    AdmissionClinicalHistoryCreate,
+    AdmissionClinicalHistoryRead,
+    AdmissionClinicalHistoryUpdate,
     AdmissionDiagnosisBulkCreate,
     AdmissionDiagnosisRead,
     ClinicalContextRead,
@@ -14,9 +17,11 @@ from app.schemas.clinical_context import (
     PatientConditionRead,
 )
 from app.services.clinical_context_service import (
+    create_clinical_history,
     create_conditions,
     create_diagnoses,
     read_clinical_context,
+    update_clinical_history,
     update_condition_status,
     update_diagnosis_status,
 )
@@ -30,6 +35,33 @@ ClinicalEditor = Annotated[CurrentSession, Depends(require_roles_with_csrf(*CLIN
 @router.get("/admissions/{admission_id}/clinical-context", response_model=ClinicalContextRead)
 def get_context(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSession) -> ClinicalContextRead:
     return read_clinical_context(session, admission_id)
+
+
+@router.post(
+    "/admissions/{admission_id}/clinical-history",
+    response_model=AdmissionClinicalHistoryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_clinical_history(
+    admission_id: uuid.UUID,
+    payload: AdmissionClinicalHistoryCreate,
+    current: ClinicalEditor,
+    session: DatabaseSession,
+) -> AdmissionClinicalHistoryRead:
+    return create_clinical_history(session, admission_id, payload, current.user.id)
+
+
+@router.patch(
+    "/admissions/{admission_id}/clinical-history",
+    response_model=AdmissionClinicalHistoryRead,
+)
+def patch_clinical_history(
+    admission_id: uuid.UUID,
+    payload: AdmissionClinicalHistoryUpdate,
+    current: ClinicalEditor,
+    session: DatabaseSession,
+) -> AdmissionClinicalHistoryRead:
+    return update_clinical_history(session, admission_id, payload, current.user.id)
 
 
 @router.post(

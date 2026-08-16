@@ -1,4 +1,4 @@
-# Backend (Fase 9.3)
+# Backend (Fase 9.4)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -11,6 +11,7 @@ separada, autorizada sólo para `nutricionista` y `jefatura`:
 - `GET /api/v1/admissions/{admission_id}/nutrition-latest`
 - `GET /api/v1/admissions/{admission_id}/nutrition-assessments|nutrition-prescriptions|nutrition-intake|nutrition-labs`
 - `GET /api/v1/admissions/{admission_id}/clinical-context`
+- `POST|PATCH /api/v1/admissions/{admission_id}/clinical-history`
 - `POST /api/v1/patients/{patient_id}/conditions`
 - `POST /api/v1/admissions/{admission_id}/diagnoses`
 - `PATCH /api/v1/patient-conditions/{condition_id}/status`
@@ -25,9 +26,14 @@ La API clínica no expone `audit_logs`, exige CSRF en mutaciones y bloquea admin
 Alimentación con `403`. La única excepción es la proyección de seguridad alimentaria de
 solo lectura: Alimentación puede consultar sustancia, tipo, criticidad y manifestaciones
 alimentarias activas, sin fuentes, notas, actores ni alergias farmacológicas. La cabeza
-Alembic es `20260815_0012`; el modelo se documenta en
-`docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md` y
-`docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md`.
+Alembic es `20260816_0013`; el modelo se documenta en
+`docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`,
+`docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md` y
+`docs/planning/FASE-9.4-HISTORIA-EPISODIO-ACTUAL.md`.
+
+La historia del episodio actual es una narrativa exclusiva de la hospitalización. Cada
+actualización inserta una versión clínica inmutable con fuente, fecha, autor y motivo; la
+auditoría técnica conserva sólo identificadores y números de versión, nunca el contenido.
 
 La evaluación inicial exige población, tamizaje y PES antes de finalizar. Seguimientos,
 reevaluaciones y acciones específicas requieren contexto y síntesis, pero pueden publicar

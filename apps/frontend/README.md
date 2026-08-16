@@ -1,4 +1,4 @@
-# Frontend (Fase 9.3)
+# Frontend (Fase 9.4)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
@@ -17,6 +17,12 @@ La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas 
 filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso
 por fila y actualizar estados con trazabilidad. Los antecedentes son longitudinales; los
 diagnósticos pertenecen al episodio. Resumen muestra los registros activos.
+
+La misma pestaña incorpora **Historia del episodio actual**, un editor amplio para pegar o
+redactar varios párrafos sobre los acontecimientos previos a la hospitalización. Registra
+fuente y fecha de inicio opcional; cada actualización exige motivo y conserva las versiones
+anteriores. No crea diagnósticos automáticamente, advierte cambios sin guardar y queda en
+solo lectura al revisar un episodio histórico.
 
 En la misma pestaña, **Alergias e intolerancias** permite pegado masivo con revisión por
 fila, categoría, tipo, criticidad, verificación, múltiples reacciones e historial. También

@@ -13,6 +13,10 @@ Los diagnósticos médicos son independientes de los diagnósticos nutricionales
 campo narrativo de una evaluación nutricional puede resumir contexto, pero no es la fuente
 de verdad para estados, fechas ni historial.
 
+Desde Fase 9.4 existe además una **Historia del episodio actual** vinculada a la
+hospitalización. Conserva el relato cronológico como narrativa versionada, pero no sustituye
+ni genera automáticamente diagnósticos o antecedentes estructurados.
+
 ## Ingreso rápido sin perder estructura
 
 La pestaña **Diagnósticos y antecedentes** permite escribir o pegar hasta 100 elementos

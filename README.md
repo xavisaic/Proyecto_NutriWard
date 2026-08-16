@@ -68,6 +68,8 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 - NRS-2002 y STRONGkids versionados; sin tamizaje neonatal o gestacional automático.
 - Requerimientos trazables, diagnósticos PES, prescripción, ingesta y exámenes manuales.
 - Diagnósticos médicos múltiples por episodio y antecedentes mórbidos reutilizables.
+- Historia narrativa del episodio actual, vinculada a la hospitalización y conservada en
+  versiones inmutables con fuente, autor y motivo de actualización.
 - Pegado rápido de listas convertido en filas estructuradas, con CIE-10 opcional.
 - Cambio libre de estados con fuente, motivo, concurrencia optimista e historial íntegro.
 
@@ -175,9 +177,11 @@ está disponible.
 
 ## Alcance
 
-Fase 9.3 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+Fase 9.4 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
 hospitalizaciones, mapa, traslados, ficha nutricional estructurada, contexto clínico y el
-registro longitudinal de alergias e intolerancias. Alimentación recibe en el mapa de camas
+registro longitudinal de alergias e intolerancias. La historia del episodio conserva el
+relato previo a la hospitalización sin convertirlo automáticamente en diagnósticos.
+Alimentación recibe en el mapa de camas
 una proyección mínima de seguridad que contiene sólo riesgos alimentarios activos. Raciones,
 cocina, integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
 balance nitrogenado y hoja horaria completa permanecen fuera de alcance.

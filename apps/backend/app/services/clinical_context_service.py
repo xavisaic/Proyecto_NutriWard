@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -6,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.models.admission import Admission
 from app.models.clinical_context import (
+    AdmissionClinicalHistoryVersion,
     AdmissionDiagnosis,
     AdmissionDiagnosisStatusHistory,
     PatientCondition,
@@ -13,7 +15,12 @@ from app.models.clinical_context import (
 )
 from app.models.common import utc_now
 from app.models.patient import Patient
+from app.models.user import User
 from app.schemas.clinical_context import (
+    AdmissionClinicalHistoryCreate,
+    AdmissionClinicalHistoryRead,
+    AdmissionClinicalHistoryUpdate,
+    AdmissionClinicalHistoryVersionRead,
     AdmissionDiagnosisBulkCreate,
     AdmissionDiagnosisRead,
     ClinicalContextRead,
@@ -62,6 +69,19 @@ def _normalized(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+def _validate_history_start_date(
+    admission: Admission, event_start_date: date | None
+) -> None:
+    if event_start_date and event_start_date > admission.admitted_at.date():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "El inicio de los acontecimientos no puede ser posterior al ingreso "
+                "hospitalario."
+            ),
+        )
+
+
 def _condition_read(session: Session, row: PatientCondition) -> PatientConditionRead:
     history = session.exec(
         select(PatientConditionStatusHistory)
@@ -84,6 +104,34 @@ def _diagnosis_read(session: Session, row: AdmissionDiagnosis) -> AdmissionDiagn
     return result
 
 
+def _clinical_history_read(
+    session: Session, admission_id: uuid.UUID
+) -> AdmissionClinicalHistoryRead | None:
+    rows = list(
+        session.exec(
+            select(AdmissionClinicalHistoryVersion)
+            .where(AdmissionClinicalHistoryVersion.admission_id == admission_id)
+            .order_by(AdmissionClinicalHistoryVersion.version)
+        ).all()
+    )
+    if not rows:
+        return None
+    versions: list[AdmissionClinicalHistoryVersionRead] = []
+    for row in rows:
+        author = session.get(User, row.recorded_by_user_id)
+        versions.append(
+            AdmissionClinicalHistoryVersionRead(
+                **row.model_dump(),
+                author_name=author.full_name if author else "Profesional no disponible",
+            )
+        )
+    return AdmissionClinicalHistoryRead(
+        admission_id=admission_id,
+        current=versions[-1],
+        versions=versions,
+    )
+
+
 def read_clinical_context(session: Session, admission_id: uuid.UUID) -> ClinicalContextRead:
     admission = _admission(session, admission_id)
     diagnoses = session.exec(
@@ -99,9 +147,102 @@ def read_clinical_context(session: Session, admission_id: uuid.UUID) -> Clinical
     return ClinicalContextRead(
         admission_id=admission.id,
         patient_id=admission.patient_id,
+        episode_history=_clinical_history_read(session, admission.id),
         diagnoses=[_diagnosis_read(session, row) for row in diagnoses],
         conditions=[_condition_read(session, row) for row in conditions],
     )
+
+
+def create_clinical_history(
+    session: Session,
+    admission_id: uuid.UUID,
+    payload: AdmissionClinicalHistoryCreate,
+    actor_id: uuid.UUID,
+) -> AdmissionClinicalHistoryRead:
+    admission = _admission(session, admission_id, editable=True)
+    _validate_history_start_date(admission, payload.event_start_date)
+    existing = session.exec(
+        select(AdmissionClinicalHistoryVersion.id).where(
+            AdmissionClinicalHistoryVersion.admission_id == admission.id
+        )
+    ).first()
+    if existing is not None:
+        raise _conflict(
+            "La historia del episodio ya existe. Recargue la ficha para actualizarla."
+        )
+    row = AdmissionClinicalHistoryVersion(
+        admission_id=admission.id,
+        version=1,
+        narrative=payload.narrative,
+        event_start_date=payload.event_start_date,
+        source=payload.source.value,
+        change_reason=None,
+        recorded_by_user_id=actor_id,
+        recorded_at=utc_now(),
+    )
+    session.add(row)
+    session.flush()
+    record_audit(
+        session,
+        action="admission_clinical_history_created",
+        actor_user_id=actor_id,
+        entity_type="admission_clinical_history_version",
+        entity_id=row.id,
+        admission_id=admission.id,
+        after_state={"version": 1},
+    )
+    _commit(session)
+    result = _clinical_history_read(session, admission.id)
+    assert result is not None
+    return result
+
+
+def update_clinical_history(
+    session: Session,
+    admission_id: uuid.UUID,
+    payload: AdmissionClinicalHistoryUpdate,
+    actor_id: uuid.UUID,
+) -> AdmissionClinicalHistoryRead:
+    admission = _admission(session, admission_id, editable=True)
+    _validate_history_start_date(admission, payload.event_start_date)
+    current = session.exec(
+        select(AdmissionClinicalHistoryVersion)
+        .where(AdmissionClinicalHistoryVersion.admission_id == admission.id)
+        .order_by(AdmissionClinicalHistoryVersion.version.desc())
+        .with_for_update()
+    ).first()
+    if current is None:
+        raise _not_found("Historia del episodio")
+    if current.version != payload.version:
+        raise _conflict(
+            "La historia del episodio fue actualizada por otro usuario. Recargue la ficha."
+        )
+    row = AdmissionClinicalHistoryVersion(
+        admission_id=admission.id,
+        version=current.version + 1,
+        narrative=payload.narrative,
+        event_start_date=payload.event_start_date,
+        source=payload.source.value,
+        change_reason=payload.change_reason,
+        recorded_by_user_id=actor_id,
+        recorded_at=utc_now(),
+    )
+    session.add(row)
+    session.flush()
+    record_audit(
+        session,
+        action="admission_clinical_history_updated",
+        actor_user_id=actor_id,
+        entity_type="admission_clinical_history_version",
+        entity_id=row.id,
+        admission_id=admission.id,
+        before_state={"version": current.version},
+        after_state={"version": row.version},
+    )
+    _commit(session)
+    result = _clinical_history_read(session, admission.id)
+    assert result is not None
+    return result
 
 
 def create_conditions(

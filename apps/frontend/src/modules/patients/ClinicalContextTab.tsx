@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { EmptyState, ErrorState, LoadingState, SectionCard } from '../../shared/components'
 import {
+  AdmissionClinicalHistory,
   AdmissionDiagnosis,
   ApiError,
   ClinicalContext,
@@ -49,6 +50,7 @@ const SOURCES: Record<string, string> = {
   care_team: 'Equipo tratante',
   patient: 'Paciente',
   family_or_caregiver: 'Familiar o cuidador',
+  combined: 'Fuentes combinadas',
   other: 'Otra fuente',
 }
 
@@ -275,6 +277,132 @@ function StatusDialog({ kind, record, csrfToken, onClose, onSaved }: {
   )
 }
 
+function ClinicalHistoryDialog({ open, history, admissionId, csrfToken, onClose, onSaved }: {
+  open: boolean
+  history: AdmissionClinicalHistory | null
+  admissionId: string
+  csrfToken: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const current = history?.current ?? null
+  const [narrative, setNarrative] = useState('')
+  const [source, setSource] = useState('clinical_record')
+  const [eventStartDate, setEventStartDate] = useState('')
+  const [changeReason, setChangeReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setNarrative(current?.narrative ?? '')
+    setSource(current?.source ?? 'clinical_record')
+    setEventStartDate(current?.event_start_date ?? '')
+    setChangeReason('')
+    setError(null)
+  }, [current, open])
+
+  const dirty = open && (
+    narrative !== (current?.narrative ?? '')
+    || source !== (current?.source ?? 'clinical_record')
+    || eventStartDate !== (current?.event_start_date ?? '')
+    || changeReason.length > 0
+  )
+  useEffect(() => {
+    if (!dirty) return undefined
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
+  function requestClose() {
+    if (saving) return
+    if (dirty && !window.confirm('Hay cambios sin guardar. ¿Desea descartarlos?')) return
+    onClose()
+  }
+
+  async function save() {
+    const cleanNarrative = narrative.trim()
+    if (cleanNarrative.length < 10 || (current && changeReason.trim().length < 3)) return
+    setSaving(true)
+    setError(null)
+    try {
+      await apiRequest(
+        `/admissions/${admissionId}/clinical-history`,
+        {
+          method: current ? 'PATCH' : 'POST',
+          body: JSON.stringify({
+            ...(current ? { version: current.version, change_reason: changeReason.trim() } : {}),
+            narrative: cleanNarrative,
+            event_start_date: eventStartDate || null,
+            source,
+          }),
+        },
+        csrfToken,
+      )
+      onSaved()
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <Dialog open={open} onClose={requestClose} fullWidth maxWidth="md">
+    <DialogTitle>{current ? 'Actualizar historia del episodio actual' : 'Registrar historia del episodio actual'}</DialogTitle>
+    <DialogContent dividers><Stack spacing={2.25}>
+      <Alert severity="info">Describa los acontecimientos previos a esta hospitalización. Los diagnósticos y antecedentes estructurados se registran por separado.</Alert>
+      {current && <Alert severity="warning">La actualización creará una nueva versión. El texto anterior, su autor y fecha permanecerán disponibles.</Alert>}
+      <TextField
+        autoFocus required multiline minRows={10} label="Historia del episodio actual"
+        value={narrative} onChange={(event) => setNarrative(event.target.value)}
+        placeholder="Describa cronológicamente el inicio de síntomas, consultas previas, cambios de ingesta, tratamientos recibidos y motivo que condujo a la hospitalización."
+        helperText={`${narrative.length}/10.000 caracteres · Puede pegar varios párrafos.`}
+        inputProps={{ maxLength: 10000 }}
+      />
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+        <FormControl fullWidth><InputLabel id="history-source-label">Fuente de información</InputLabel><Select labelId="history-source-label" label="Fuente de información" value={source} onChange={(event) => setSource(event.target.value)}>{Object.entries(SOURCES).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select></FormControl>
+        <TextField fullWidth type="date" label="Inicio de los acontecimientos" value={eventStartDate} onChange={(event) => setEventStartDate(event.target.value)} InputLabelProps={{ shrink: true }} helperText="Opcional; use la mejor fecha conocida." />
+      </Stack>
+      {current && <TextField required multiline minRows={2} label="Motivo de la actualización" value={changeReason} onChange={(event) => setChangeReason(event.target.value)} helperText="Explique brevemente qué información se agregó o corrigió." inputProps={{ maxLength: 1000 }} />}
+      {error && <Alert severity="error">{error}</Alert>}
+    </Stack></DialogContent>
+    <DialogActions><Button onClick={requestClose} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={() => void save()} disabled={saving || narrative.trim().length < 10 || Boolean(current && changeReason.trim().length < 3)}>{saving ? 'Guardando…' : current ? 'Guardar nueva versión' : 'Guardar historia'}</Button></DialogActions>
+  </Dialog>
+}
+
+function EpisodeHistorySection({ history, historical, onEdit }: {
+  history: AdmissionClinicalHistory | null
+  historical: boolean
+  onEdit: () => void
+}) {
+  const current = history?.current
+  return <SectionCard
+    title="Historia del episodio actual"
+    description="Relato de los acontecimientos que precedieron y condujeron a la hospitalización seleccionada."
+    actions={!historical ? <Button startIcon={current ? <Pencil size={17} /> : <Plus size={17} />} variant={current ? 'outlined' : 'contained'} onClick={onEdit}>{current ? 'Actualizar historia' : 'Registrar historia'}</Button> : undefined}
+  >
+    {!current ? <EmptyState title="Historia pendiente de registrar" description="Puede escribir o pegar varios párrafos sin convertirlos en diagnósticos automáticamente." /> : <Stack spacing={2}>
+      <Typography sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.75 }}>{current.narrative}</Typography>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={{ xs: 0.5, md: 2 }}>
+        <Typography variant="caption" color="text.secondary">Versión {current.version}</Typography>
+        <Typography variant="caption" color="text.secondary">{current.author_name}</Typography>
+        <Typography variant="caption" color="text.secondary">Actualizada {formatDate(current.recorded_at)}</Typography>
+        <Typography variant="caption" color="text.secondary">Fuente: {SOURCES[current.source] || current.source}</Typography>
+        {current.event_start_date && <Typography variant="caption" color="text.secondary">Inicio: {formatDate(current.event_start_date)}</Typography>}
+      </Stack>
+      {history.versions.length > 1 && <Accordion disableGutters elevation={0}>
+        <AccordionSummary expandIcon={<ChevronDown size={17} />}><Typography fontWeight={750}>Historial de versiones ({history.versions.length})</Typography></AccordionSummary>
+        <AccordionDetails><Stack spacing={2}>{[...history.versions].reverse().map((version) => <Box key={version.id} sx={{ borderLeft: 2, borderColor: 'divider', pl: 2 }}>
+          <Typography variant="body2" fontWeight={750}>Versión {version.version} · {version.author_name} · {formatDate(version.recorded_at)}</Typography>
+          <Typography variant="caption" color="text.secondary">{SOURCES[version.source] || version.source}{version.change_reason ? ` · ${version.change_reason}` : ' · Registro inicial'}</Typography>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>{version.narrative}</Typography>
+        </Box>)}</Stack></AccordionDetails>
+      </Accordion>}
+    </Stack>}
+  </SectionCard>
+}
+
 function RecordTable({ kind, rows, historical, onEdit }: {
   kind: RecordKind
   rows: ClinicalRecord[]
@@ -317,6 +445,7 @@ export function ClinicalContextTab({ admissionId, patientId, historical, csrfTok
   const [error, setError] = useState<string | null>(null)
   const [bulkKind, setBulkKind] = useState<RecordKind | null>(null)
   const [editing, setEditing] = useState<{ kind: RecordKind; record: ClinicalRecord } | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const sequence = useRef(0)
   const load = useCallback(async () => {
     const current = ++sequence.current
@@ -336,10 +465,11 @@ export function ClinicalContextTab({ admissionId, patientId, historical, csrfTok
   if (loading && !data) return <LoadingState label="Cargando diagnósticos y antecedentes" rows={5} />
   if (error && !data) return <ErrorState message={error} onRetry={() => void load()} />
   if (!data) return null
-  const afterSaved = () => { setBulkKind(null); setEditing(null); void load(); onChanged() }
+  const afterSaved = () => { setBulkKind(null); setEditing(null); setHistoryOpen(false); void load(); onChanged() }
   return <Stack spacing={2}>
-    {historical && <Alert severity="info">Episodio histórico · Diagnósticos de solo lectura. Los antecedentes mostrados son longitudinales y reflejan su estado actual.</Alert>}
+    {historical && <Alert severity="info">Episodio histórico · Historia y diagnósticos de solo lectura. Los antecedentes mostrados son longitudinales y reflejan su estado actual.</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
+    <EpisodeHistorySection history={data.episode_history} historical={historical} onEdit={() => setHistoryOpen(true)} />
     <SectionCard title="Diagnósticos de la hospitalización" description="Múltiples diagnósticos vinculados exclusivamente al episodio seleccionado.">
       <Stack spacing={2}>
         {!historical && <Button startIcon={<Plus size={17} />} variant="contained" onClick={() => setBulkKind('diagnosis')} sx={{ alignSelf: 'flex-start' }}>Agregar diagnósticos</Button>}
@@ -359,6 +489,7 @@ export function ClinicalContextTab({ admissionId, patientId, historical, csrfTok
       onChanged={onChanged}
     />
     <HistoryPanels data={data} />
+    <ClinicalHistoryDialog open={historyOpen} history={data.episode_history} admissionId={admissionId} csrfToken={csrfToken} onClose={() => setHistoryOpen(false)} onSaved={afterSaved} />
     {bulkKind && <BulkEntryDialog kind={bulkKind} open admissionId={admissionId} patientId={patientId} csrfToken={csrfToken} onClose={() => setBulkKind(null)} onSaved={afterSaved} />}
     {editing && <StatusDialog kind={editing.kind} record={editing.record} csrfToken={csrfToken} onClose={() => setEditing(null)} onSaved={afterSaved} />}
   </Stack>

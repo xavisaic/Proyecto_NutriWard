@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ClinicalContextTab, parseClinicalPaste } from './ClinicalContextTab'
 
-const emptyContext = { admission_id: 'adm-1', patient_id: 'patient-1', diagnoses: [], conditions: [] }
+const emptyContext = { admission_id: 'adm-1', patient_id: 'patient-1', episode_history: null, diagnoses: [], conditions: [] }
 
 function response(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
@@ -43,6 +43,51 @@ describe('Diagnósticos y antecedentes', () => {
     expect(new Headers(request?.[1]?.headers).get('X-CSRF-Token')).toBe('csrf-demo')
   })
 
+  it('registra una historia narrativa sin convertirla en diagnósticos', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') return response({}, 201)
+      return response(emptyContext)
+    })
+    render(<ClinicalContextTab admissionId="adm-1" patientId="patient-1" historical={false} csrfToken="csrf-history" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar historia' }))
+    const narrative = 'Paciente presenta cinco días de vómitos.\n\nConsulta por deterioro progresivo.'
+    await userEvent.type(screen.getByRole('textbox', { name: 'Historia del episodio actual' }), narrative)
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar historia' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).includes('/admissions/adm-1/clinical-history') && init?.method === 'POST',
+    )).toBe(true))
+    const request = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/clinical-history') && init?.method === 'POST')
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ narrative, source: 'clinical_record', event_start_date: null })
+    expect(new Headers(request?.[1]?.headers).get('X-CSRF-Token')).toBe('csrf-history')
+  })
+
+  it('actualiza la historia creando una nueva versión con motivo', async () => {
+    const current = {
+      id: 'history-1', admission_id: 'adm-1', version: 1,
+      narrative: 'Relato inicial del episodio actual.', event_start_date: '2026-08-10',
+      source: 'patient', change_reason: null, recorded_by_user_id: 'user-1',
+      author_name: 'Nutricionista Demo', recorded_at: '2026-08-16T10:00:00Z',
+    }
+    const context = { ...emptyContext, episode_history: { admission_id: 'adm-1', current, versions: [current] } }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) =>
+      init?.method === 'PATCH' ? response({}) : response(context),
+    )
+    render(<ClinicalContextTab admissionId="adm-1" patientId="patient-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar historia' }))
+    const narrative = screen.getByRole('textbox', { name: 'Historia del episodio actual' })
+    await userEvent.clear(narrative)
+    await userEvent.type(narrative, 'Relato actualizado con información de urgencia.')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Motivo de la actualización' }), 'Se agrega epicrisis de urgencia.')
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar nueva versión' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true))
+    const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+      version: 1,
+      narrative: 'Relato actualizado con información de urgencia.',
+      change_reason: 'Se agrega epicrisis de urgencia.',
+    })
+  })
+
   it('actualiza libremente el estado con fuente, motivo y versión', async () => {
     const diagnosis = {
       id: 'dx-1', admission_id: 'adm-1', diagnosis_name: 'Neumonía', code_system: null, code: null,
@@ -70,5 +115,6 @@ describe('Diagnósticos y antecedentes', () => {
     expect(await screen.findByText(/Los antecedentes mostrados son longitudinales/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Agregar diagnósticos' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Agregar antecedentes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar historia' })).not.toBeInTheDocument()
   })
 })

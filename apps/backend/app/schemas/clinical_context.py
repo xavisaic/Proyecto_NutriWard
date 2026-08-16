@@ -13,6 +13,7 @@ class ClinicalSource(StrEnum):
     CARE_TEAM = "care_team"
     PATIENT = "patient"
     FAMILY_OR_CAREGIVER = "family_or_caregiver"
+    COMBINED = "combined"
     OTHER = "other"
 
 
@@ -196,8 +197,56 @@ class AdmissionDiagnosisRead(BaseModel):
     history: list[StatusHistoryRead] = Field(default_factory=list)
 
 
+def normalize_clinical_narrative(value: str) -> str:
+    normalized_lines = [
+        line.rstrip()
+        for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    normalized = "\n".join(normalized_lines).strip()
+    if not normalized:
+        raise ValueError("La historia del episodio no puede estar vacía.")
+    return normalized
+
+
+class AdmissionClinicalHistoryCreate(BaseModel):
+    narrative: str = Field(min_length=10, max_length=10000)
+    event_start_date: date | None = None
+    source: ClinicalSource
+
+    _narrative = field_validator("narrative")(normalize_clinical_narrative)
+
+
+class AdmissionClinicalHistoryUpdate(AdmissionClinicalHistoryCreate):
+    version: int = Field(ge=1)
+    change_reason: str = Field(min_length=3, max_length=1000)
+
+    _reason = field_validator("change_reason")(normalize_required_text)
+
+
+class AdmissionClinicalHistoryVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    admission_id: uuid.UUID
+    version: int
+    narrative: str
+    event_start_date: date | None
+    source: str
+    change_reason: str | None
+    recorded_by_user_id: uuid.UUID
+    author_name: str
+    recorded_at: datetime
+
+
+class AdmissionClinicalHistoryRead(BaseModel):
+    admission_id: uuid.UUID
+    current: AdmissionClinicalHistoryVersionRead
+    versions: list[AdmissionClinicalHistoryVersionRead]
+
+
 class ClinicalContextRead(BaseModel):
     admission_id: uuid.UUID
     patient_id: uuid.UUID
+    episode_history: AdmissionClinicalHistoryRead | None
     diagnoses: list[AdmissionDiagnosisRead]
     conditions: list[PatientConditionRead]

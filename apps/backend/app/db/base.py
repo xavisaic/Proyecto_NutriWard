@@ -13,6 +13,7 @@ from app.models.admission_status_history import AdmissionStatusHistory  # noqa: 
 from app.models.care_unit import CareUnit  # noqa: F401
 from app.models.care_unit_layout_position import CareUnitLayoutPosition  # noqa: F401
 from app.models.clinical_context import (  # noqa: F401
+    AdmissionClinicalHistoryVersion,
     AdmissionDiagnosis,
     AdmissionDiagnosisStatusHistory,
     PatientCondition,

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import select
 
@@ -39,12 +39,98 @@ def test_permissions_openapi_and_empty_context(client, db_session) -> None:
     authenticate(client)
     result = client.get(url)
     assert result.status_code == 200
+    assert result.json()["episode_history"] is None
     assert result.json()["diagnoses"] == []
     assert result.json()["conditions"] == []
     paths = client.get("/openapi.json").json()["paths"]
     assert "/api/v1/admissions/{admission_id}/clinical-context" in paths
     assert "/api/v1/patients/{patient_id}/conditions" in paths
     assert "/api/v1/admissions/{admission_id}/diagnoses" in paths
+    assert "/api/v1/admissions/{admission_id}/clinical-history" in paths
+
+
+def test_versioned_episode_history_preserves_previous_narratives_and_privacy(
+    client, db_session
+) -> None:
+    admission = active_admission(db_session)
+    history_url = f"/api/v1/admissions/{admission.id}/clinical-history"
+    payload = {
+        "narrative": (
+            "Paciente con cinco días de menor ingesta y vómitos.\n\n"
+            "Consulta por compromiso progresivo del estado general."
+        ),
+        "event_start_date": (admission.admitted_at.date() - timedelta(days=5)).isoformat(),
+        "source": "combined",
+    }
+    assert client.post(history_url, json=payload).status_code == 401
+    for role in ("administrador", "alimentacion"):
+        client.cookies.clear()
+        authenticate(client, role)
+        assert client.post(history_url, json=payload).status_code == 403
+
+    client.cookies.clear()
+    auth = authenticate(client)
+    clinical_headers = headers(auth)
+    assert client.post(history_url, json=payload).status_code == 403
+    invalid_date = client.post(
+        history_url,
+        json={**payload, "event_start_date": "2999-01-01"},
+        headers=clinical_headers,
+    )
+    assert invalid_date.status_code == 422
+    created = client.post(history_url, json=payload, headers=clinical_headers)
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["current"]["version"] == 1
+    assert body["current"]["narrative"] == payload["narrative"]
+    assert body["current"]["author_name"] == "Nutricionista Demo"
+    assert len(body["versions"]) == 1
+
+    duplicate = client.post(history_url, json=payload, headers=clinical_headers)
+    assert duplicate.status_code == 409
+    updated_payload = {
+        "version": 1,
+        "narrative": (
+            "Paciente con cinco días de menor ingesta y vómitos.\n\n"
+            "Ingresa luego de presentar intolerancia completa a la vía oral."
+        ),
+        "event_start_date": payload["event_start_date"],
+        "source": "clinical_record",
+        "change_reason": "Se incorpora información de la epicrisis de urgencia.",
+    }
+    updated = client.patch(
+        history_url, json=updated_payload, headers=clinical_headers
+    )
+    assert updated.status_code == 200, updated.text
+    updated_body = updated.json()
+    assert updated_body["current"]["version"] == 2
+    assert len(updated_body["versions"]) == 2
+    assert updated_body["versions"][0]["narrative"] == payload["narrative"]
+    assert updated_body["versions"][1]["narrative"] == updated_payload["narrative"]
+
+    stale = client.patch(
+        history_url, json=updated_payload, headers=clinical_headers
+    )
+    assert stale.status_code == 409
+    context = client.get(
+        f"/api/v1/admissions/{admission.id}/clinical-context"
+    ).json()
+    assert context["episode_history"]["current"]["version"] == 2
+
+    audits = db_session.exec(
+        select(AuditLog).where(
+            AuditLog.admission_id == admission.id,
+            AuditLog.entity_type == "admission_clinical_history_version",
+        )
+    ).all()
+    assert [event.action for event in audits] == [
+        "admission_clinical_history_created",
+        "admission_clinical_history_updated",
+    ]
+    for event in audits:
+        serialized = f"{event.before_state}{event.after_state}"
+        assert "Paciente con" not in serialized
+        assert "epicrisis" not in serialized
 
 
 def test_bulk_create_deduplication_and_longitudinal_scope(client, db_session) -> None:
@@ -217,3 +303,12 @@ def test_historical_admission_is_read_only_and_csrf_is_required(client, db_sessi
         f"/api/v1/admissions/{old.id}/diagnoses", json=payload, headers=headers(auth)
     )
     assert historical.status_code == 409
+    history = client.post(
+        f"/api/v1/admissions/{old.id}/clinical-history",
+        json={
+            "narrative": "Historia retrospectiva que no debe guardarse.",
+            "source": "clinical_record",
+        },
+        headers=headers(auth),
+    )
+    assert history.status_code == 409

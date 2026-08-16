@@ -466,9 +466,29 @@ export interface AdmissionDiagnosis {
   history: ClinicalStatusHistory[]
 }
 
+export interface AdmissionClinicalHistoryVersion {
+  id: string
+  admission_id: string
+  version: number
+  narrative: string
+  event_start_date: string | null
+  source: string
+  change_reason: string | null
+  recorded_by_user_id: string
+  author_name: string
+  recorded_at: string
+}
+
+export interface AdmissionClinicalHistory {
+  admission_id: string
+  current: AdmissionClinicalHistoryVersion
+  versions: AdmissionClinicalHistoryVersion[]
+}
+
 export interface ClinicalContext {
   admission_id: string
   patient_id: string
+  episode_history: AdmissionClinicalHistory | null
   diagnoses: AdmissionDiagnosis[]
   conditions: PatientCondition[]
 }
