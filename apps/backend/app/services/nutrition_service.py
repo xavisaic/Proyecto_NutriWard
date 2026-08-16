@@ -18,6 +18,8 @@ from app.models.nutrition import (
     NutritionalDiagnosis,
     NutritionalIntakeRecord,
     NutritionalLabObservation,
+    NutritionalMeasurementSession,
+    NutritionalMeasurementValue,
     NutritionalMonitoringRecord,
     NutritionalPrescription,
     NutritionalPrescriptionMealTime,
@@ -337,6 +339,120 @@ def _replace_anthropometry(session: Session, encounter: NutritionalCareEncounter
             ))
 
 
+def _replace_advanced_measurements(
+    session: Session,
+    encounter: NutritionalCareEncounter,
+    payloads: Iterable[Any],
+) -> None:
+    previous = _rows(session, NutritionalMeasurementSession, encounter.id)
+    for measurement_session in previous:
+        session.exec(
+            delete(NutritionalMeasurementValue).where(
+                NutritionalMeasurementValue.session_id == measurement_session.id
+            )
+        )
+    session.exec(
+        delete(NutritionalMeasurementSession).where(
+            NutritionalMeasurementSession.encounter_id == encounter.id
+        )
+    )
+    session.flush()
+    for payload in payloads:
+        algorithm_version = {
+            "handgrip": "maximum-of-three-bilateral-v1",
+            "skinfold_4": "mean-of-three-per-site-sum-v1",
+        }.get(payload.session_type)
+        values = payload.model_dump(exclude={"values"})
+        values.update(
+            admission_id=encounter.admission_id,
+            encounter_id=encounter.id,
+            algorithm_version=algorithm_version,
+            author_professional_id=encounter.author_professional_id,
+        )
+        measurement_session = NutritionalMeasurementSession(**values)
+        session.add(measurement_session)
+        session.flush()
+        value_nature = (
+            "device_reported" if payload.session_type == "bioimpedance" else "measured"
+        )
+        for supplied in payload.values:
+            session.add(
+                NutritionalMeasurementValue(
+                    session_id=measurement_session.id,
+                    **supplied.model_dump(),
+                    value_nature=value_nature,
+                )
+            )
+
+        if payload.session_type == "handgrip":
+            for side in ("left", "right"):
+                side_maximum = max(
+                    value.value
+                    for value in payload.values
+                    if value.laterality == side
+                )
+                session.add(
+                    NutritionalMeasurementValue(
+                        session_id=measurement_session.id,
+                        measurement_code=f"handgrip_max_{side}",
+                        laterality=side,
+                        value=side_maximum,
+                        unit="kgf",
+                        value_nature="calculated",
+                    )
+                )
+            overall_maximum = max(value.value for value in payload.values)
+            session.add(
+                NutritionalMeasurementValue(
+                    session_id=measurement_session.id,
+                    measurement_code="handgrip_max",
+                    laterality="bilateral",
+                    value=overall_maximum,
+                    unit="kgf",
+                    value_nature="calculated",
+                )
+            )
+
+        if payload.session_type == "skinfold_4":
+            site_means: list[Decimal] = []
+            for code in (
+                "skinfold_biceps",
+                "skinfold_triceps",
+                "skinfold_subscapular",
+                "skinfold_suprailiac",
+            ):
+                site_values = [
+                    value.value
+                    for value in payload.values
+                    if value.measurement_code == code
+                ]
+                site_mean = (sum(site_values, Decimal(0)) / Decimal(3)).quantize(
+                    Decimal("0.1"), rounding=ROUND_HALF_UP
+                )
+                site_means.append(site_mean)
+                session.add(
+                    NutritionalMeasurementValue(
+                        session_id=measurement_session.id,
+                        measurement_code=f"{code}_mean",
+                        laterality="right",
+                        value=site_mean,
+                        unit="mm",
+                        value_nature="calculated",
+                    )
+                )
+            total = sum(site_means, Decimal(0)).quantize(
+                Decimal("0.1"), rounding=ROUND_HALF_UP
+            )
+            session.add(
+                NutritionalMeasurementValue(
+                    session_id=measurement_session.id,
+                    measurement_code="skinfold_sum_4",
+                    laterality="right",
+                    value=total,
+                    unit="mm",
+                    value_nature="calculated",
+                )
+            )
 def _replace_screenings(session: Session, encounter: NutritionalCareEncounter, payloads: Iterable[Any]) -> None:
     previous = _rows(session, NutritionalScreening, encounter.id)
     for screening in previous:
@@ -462,6 +578,8 @@ def _apply_payload(session: Session, encounter: NutritionalCareEncounter, payloa
         _replace_assessment(session, encounter, payload.assessment)
     if "anthropometry" in fields:
         _replace_anthropometry(session, encounter, payload.anthropometry)
+    if "advanced_measurements" in fields:
+        _replace_advanced_measurements(session, encounter, payload.advanced_measurements)
     if "screenings" in fields:
         _replace_screenings(session, encounter, payload.screenings)
     if "requirements" in fields:
@@ -532,6 +650,26 @@ def _prescription_with_meals(session: Session, prescription: NutritionalPrescrip
     return result
 
 
+def _advanced_measurement_read(
+    session: Session, measurement_session: NutritionalMeasurementSession
+) -> dict[str, Any]:
+    result = _dump(measurement_session)
+    result["values"] = [
+        _dump(row)
+        for row in session.exec(
+            select(NutritionalMeasurementValue)
+            .where(NutritionalMeasurementValue.session_id == measurement_session.id)
+            .order_by(
+                NutritionalMeasurementValue.measurement_code,
+                NutritionalMeasurementValue.laterality,
+                NutritionalMeasurementValue.attempt_number,
+                NutritionalMeasurementValue.id,
+            )
+        ).all()
+    ]
+    return result
+
+
 def get_encounter(session: Session, encounter_id: uuid.UUID) -> NutritionEncounterRead:
     encounter = _encounter(session, encounter_id)
     assessment = session.exec(select(NutritionalAssessment).where(NutritionalAssessment.encounter_id == encounter.id)).first()
@@ -544,6 +682,13 @@ def get_encounter(session: Session, encounter_id: uuid.UUID) -> NutritionEncount
         assessment=_dump(assessment) if assessment else None,
         context_items=[_dump(row) for row in _rows(session, NutritionalClinicalContextItem, encounter.id)],
         anthropometry=[_dump(row) for row in _rows(session, NutritionalAnthropometricMeasurement, encounter.id)],
+        advanced_measurements=[
+            _advanced_measurement_read(session, row)
+            for row in sorted(
+                _rows(session, NutritionalMeasurementSession, encounter.id),
+                key=lambda item: (item.measured_at, str(item.id)),
+            )
+        ],
         screenings=[_screening_with_answers(session, row) for row in screenings],
         requirements=[_dump(row) for row in _rows(session, NutritionalRequirementCalculation, encounter.id)],
         diagnoses=sorted([_dump(row) for row in _rows(session, NutritionalDiagnosis, encounter.id)], key=lambda row: (row["priority"], str(row["id"]))),
@@ -621,8 +766,20 @@ def _documented_sections(
         )
     ).first():
         sections.append("assessment")
+    if (
+        session.exec(
+            select(NutritionalAnthropometricMeasurement.id).where(
+                NutritionalAnthropometricMeasurement.encounter_id == encounter.id
+            )
+        ).first()
+        or session.exec(
+            select(NutritionalMeasurementSession.id).where(
+                NutritionalMeasurementSession.encounter_id == encounter.id
+            )
+        ).first()
+    ):
+        sections.append("anthropometry")
     checks = (
-        ("anthropometry", NutritionalAnthropometricMeasurement),
         ("screening", NutritionalScreening),
         ("requirements", NutritionalRequirementCalculation),
         ("diagnoses", NutritionalDiagnosis),
@@ -699,6 +856,26 @@ def _clone_rows(session: Session, original: NutritionalCareEncounter, clone: Nut
             if "created_at" in values:
                 values["created_at"] = utc_now()
             session.add(model(**values))
+    for original_session in _rows(session, NutritionalMeasurementSession, original.id):
+        values = _dump(original_session)
+        original_session_id = values.pop("id")
+        values.update(
+            encounter_id=clone.id,
+            author_professional_id=clone.author_professional_id,
+            created_at=utc_now(),
+        )
+        cloned_session = NutritionalMeasurementSession(**values)
+        session.add(cloned_session)
+        session.flush()
+        for original_value in session.exec(
+            select(NutritionalMeasurementValue).where(
+                NutritionalMeasurementValue.session_id == original_session_id
+            )
+        ).all():
+            value_data = _dump(original_value)
+            value_data.pop("id")
+            value_data.update(session_id=cloned_session.id, created_at=utc_now())
+            session.add(NutritionalMeasurementValue(**value_data))
     for screening in _rows(session, NutritionalScreening, original.id):
         values = _dump(screening)
         old_id = values.pop("id")
@@ -899,6 +1076,12 @@ def catalogs() -> NutritionCatalogs:
         population_groups=["adult", "pediatric", "neonatal", "pregnancy"],
         information_sources=["patient_interview", "family_or_caregiver", "clinical_record", "trakcare_manual", "care_team_observation", "combined", "other"],
         measurement_types=["current_weight_measured", "current_weight_reported", "usual_weight", "preadmission_weight", "dry_weight", "ideal_weight", "adjusted_weight", "target_weight", "prepregnancy_weight", "birth_weight", "neonatal_minimum_weight", "calculation_weight", "standing_height", "recumbent_length", "estimated_height", "mid_upper_arm_circumference", "head_circumference", "waist_circumference", "skinfold", "body_mass_index"],
+        advanced_measurement_protocols=[
+            {"session_type": "circumference", "code": "institutional-circumferences", "version": "v1"},
+            {"session_type": "handgrip", "code": "hospital-handgrip", "version": "v1", "attempts_per_hand": 3, "adopted_result": "bilateral_maximum", "unit": "kgf"},
+            {"session_type": "skinfold_4", "code": "durnin-womersley-4", "version": "v1", "sites": ["biceps", "triceps", "subscapular", "suprailiac"], "attempts_per_site": 3, "calculation": "sum_of_site_means"},
+            {"session_type": "bioimpedance", "code": "device-reported-bia", "version": "v1", "interpretation": "none"},
+        ],
         meal_times=["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "night_snack", "other"],
         screening_defaults={"adult": "nrs_2002", "pediatric": "strongkids", "neonatal": "none", "pregnancy": "none"},
         screening_tools=[

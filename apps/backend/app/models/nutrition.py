@@ -151,6 +151,101 @@ class NutritionalAnthropometricMeasurement(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
 
 
+class NutritionalMeasurementSession(SQLModel, table=True):
+    __tablename__ = "nutritional_measurement_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "session_type IN ('circumference','handgrip','skinfold_4','bioimpedance')",
+            name="ck_nutrition_measurement_session_type",
+        ),
+        CheckConstraint(
+            "reliability IN ('high','medium','low','unknown')",
+            name="ck_nutrition_measurement_session_reliability",
+        ),
+        CheckConstraint(
+            "preparation_status IS NULL OR preparation_status IN "
+            "('standard','nonstandard','unknown')",
+            name="ck_nutrition_measurement_preparation_status",
+        ),
+        CheckConstraint(
+            "hydration_status IS NULL OR hydration_status IN "
+            "('usual','altered','unknown')",
+            name="ck_nutrition_measurement_hydration_status",
+        ),
+        Index(
+            "ix_nutrition_measurement_session_encounter_type",
+            "encounter_id",
+            "session_type",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    admission_id: uuid.UUID = Field(foreign_key="admissions.id", index=True)
+    encounter_id: uuid.UUID = Field(
+        foreign_key="nutritional_care_encounters.id", index=True
+    )
+    session_type: str = Field(max_length=30, index=True)
+    measured_at: datetime = Field(sa_type=DateTime(timezone=True), index=True)
+    protocol_code: str = Field(max_length=80)
+    protocol_version: str = Field(max_length=40)
+    algorithm_version: str | None = Field(default=None, max_length=100)
+    device_manufacturer: str | None = Field(default=None, max_length=120)
+    device_model: str | None = Field(default=None, max_length=120)
+    device_serial: str | None = Field(default=None, max_length=120)
+    technology: str | None = Field(default=None, max_length=80)
+    frequencies_khz: str | None = Field(default=None, max_length=200)
+    position: str | None = Field(default=None, max_length=80)
+    source: str | None = Field(default=None, max_length=80)
+    reliability: str = Field(default="unknown", max_length=20)
+    preparation_status: str | None = Field(default=None, max_length=20)
+    fasting_hours: Decimal | None = Field(default=None, sa_type=Numeric(6, 2))
+    recent_exercise: bool | None = None
+    bladder_emptied: bool | None = None
+    hydration_status: str | None = Field(default=None, max_length=20)
+    edema_present: bool | None = None
+    observations: str | None = Field(default=None, max_length=3000)
+    author_professional_id: uuid.UUID = Field(foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
+
+
+class NutritionalMeasurementValue(SQLModel, table=True):
+    __tablename__ = "nutritional_measurement_values"
+    __table_args__ = (
+        CheckConstraint("value >= 0", name="ck_nutrition_measurement_value_non_negative"),
+        CheckConstraint(
+            "laterality IN ('none','left','right','bilateral')",
+            name="ck_nutrition_measurement_value_laterality",
+        ),
+        CheckConstraint(
+            "value_nature IN ('measured','calculated','device_reported')",
+            name="ck_nutrition_measurement_value_nature",
+        ),
+        CheckConstraint(
+            "attempt_number IS NULL OR attempt_number BETWEEN 1 AND 3",
+            name="ck_nutrition_measurement_value_attempt",
+        ),
+        Index(
+            "ix_nutrition_measurement_value_session_code",
+            "session_id",
+            "measurement_code",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    session_id: uuid.UUID = Field(
+        foreign_key="nutritional_measurement_sessions.id", index=True
+    )
+    measurement_code: str = Field(max_length=80, index=True)
+    body_site: str | None = Field(default=None, max_length=80)
+    laterality: str = Field(default="none", max_length=20)
+    attempt_number: int | None = None
+    value: Decimal = Field(sa_type=Numeric(12, 4))
+    unit: str = Field(max_length=20)
+    value_nature: str = Field(max_length=30)
+    observations: str | None = Field(default=None, max_length=1000)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
+
+
 class NutritionalScreening(SQLModel, table=True):
     __tablename__ = "nutritional_screenings"
     __table_args__ = (

@@ -31,12 +31,12 @@ try {
     Assert-NativeSuccess "OpenAPI"
 
     Write-Host "[5/12] metadata tables, constraints, precision and indexes"
-    python -c "from app.db.base import get_metadata; m=get_metadata(); expected={'nutritional_care_encounters','nutritional_assessments','nutritional_clinical_context_items','nutritional_anthropometric_measurements','nutritional_screenings','nutritional_screening_answers','nutritional_requirement_calculations','nutritional_diagnoses','nutritional_prescriptions','nutritional_prescription_meal_times','nutritional_monitoring_records','nutritional_intake_records','nutritional_lab_observations','nutritional_alerts','patient_conditions','patient_condition_status_history','admission_diagnoses','admission_diagnosis_status_history','admission_clinical_history_versions','patient_allergy_intolerances','allergy_intolerance_reactions','allergy_intolerance_status_history','patient_allergy_review_assertions'}; assert expected<=set(m.tables),expected-set(m.tables); e=m.tables['nutritional_care_encounters']; assert {'admission_id','encounter_datetime','status','version'}<=set(e.c.keys()); assert any(i.name=='ix_nutrition_encounter_admission_datetime_status' for i in e.indexes); assert str(m.tables['nutritional_anthropometric_measurements'].c.value.type).startswith('NUMERIC'); print('Phase 9.4 metadata valid')"
+    python -c "from app.db.base import get_metadata; m=get_metadata(); expected={'nutritional_care_encounters','nutritional_assessments','nutritional_clinical_context_items','nutritional_anthropometric_measurements','nutritional_measurement_sessions','nutritional_measurement_values','nutritional_screenings','nutritional_screening_answers','nutritional_requirement_calculations','nutritional_diagnoses','nutritional_prescriptions','nutritional_prescription_meal_times','nutritional_monitoring_records','nutritional_intake_records','nutritional_lab_observations','nutritional_alerts','patient_conditions','patient_condition_status_history','admission_diagnoses','admission_diagnosis_status_history','admission_clinical_history_versions','patient_allergy_intolerances','allergy_intolerance_reactions','allergy_intolerance_status_history','patient_allergy_review_assertions'}; assert expected<=set(m.tables),expected-set(m.tables); e=m.tables['nutritional_care_encounters']; assert {'admission_id','encounter_datetime','status','version'}<=set(e.c.keys()); assert any(i.name=='ix_nutrition_encounter_admission_datetime_status' for i in e.indexes); assert str(m.tables['nutritional_measurement_values'].c.value.type).startswith('NUMERIC'); print('Phase 9.5 metadata valid')"
     Assert-NativeSuccess "Metadata"
 
     Write-Host "[6/12] isolated migration upgrade, downgrade and re-upgrade"
     Push-Location "apps/backend"
-    python -m pytest tests/test_phase9_migration.py tests/test_phase9_1_migration.py tests/test_phase9_2_migration.py tests/test_phase9_4_migration.py -q
+    python -m pytest tests/test_phase9_migration.py tests/test_phase9_1_migration.py tests/test_phase9_2_migration.py tests/test_phase9_4_migration.py tests/test_phase9_5_migration.py -q
     Assert-NativeSuccess "Migration cycle"
     Pop-Location
 
@@ -44,7 +44,7 @@ try {
     Push-Location "apps/backend"
     $heads = @(alembic heads)
     Assert-NativeSuccess "Alembic heads"
-    if ($heads.Count -ne 1 -or $heads[0] -notmatch "20260816_0013") { throw "Unexpected Alembic heads: $heads" }
+    if ($heads.Count -ne 1 -or $heads[0] -notmatch "20260817_0014") { throw "Unexpected Alembic heads: $heads" }
     Pop-Location
 
     Write-Host "[8/12] idempotent seeds without clinical fixtures"
@@ -82,5 +82,5 @@ try {
         docker compose -f infra/docker-compose.yml --env-file infra/.env.example config | Out-Null
         Assert-NativeSuccess "Docker Compose"
     } else { Write-Host "Docker daemon unavailable; Compose runtime skipped." }
-    Write-Host "Phase 9.4 verification completed."
+    Write-Host "Phase 9.5 verification completed."
 } finally { Pop-Location }

@@ -77,6 +77,12 @@ También calcula porcentaje de cambio respecto del peso habitual cuando ambos pe
 disponibles. El resultado calculado y un eventual valor manual se separan; un ajuste manual
 requiere motivo. Elegir peso ideal o ajustado nunca es automático.
 
+Desde Fase 9.5, las circunferencias, la fuerza de agarre, los cuatro pliegues y la
+bioimpedancia se registran como sesiones trazables independientes. Cada sesión conserva
+protocolo y versión, equipo, condiciones y valores de origen. Los resultados derivados se
+calculan sólo en backend y quedan distinguidos de los valores medidos o informados por el
+dispositivo. Ver `FASE-9.5-ANTROPOMETRIA-AVANZADA.md`.
+
 Las curvas OMS/MINSAL quedan registrables con código y versión, pero esta fase no calcula
 puntajes Z ni percentiles: no se incorporó todavía una biblioteca/dataset oficial local
 versionado con casos de referencia. Neonatología y embarazo tampoco reciben una

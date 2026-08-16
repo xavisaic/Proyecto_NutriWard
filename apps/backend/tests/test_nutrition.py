@@ -354,6 +354,155 @@ def test_modular_follow_up_preserves_previous_clinical_projections(client, db_se
     assert resolved_latest["latest_screening"]["tool_code"] == "nrs_2002"
 
 
+def test_advanced_measurements_calculate_protocol_results_and_preserve_device_data(
+    client, db_session
+) -> None:
+    admission = active_admission(db_session)
+    auth = authenticate(client)
+    clinical_headers = {"X-CSRF-Token": auth["csrf_token"]}
+    handgrip_values = [
+        {
+            "measurement_code": "handgrip_strength",
+            "laterality": side,
+            "attempt_number": attempt,
+            "value": value,
+            "unit": "kgf",
+        }
+        for side, readings in (("left", (20, 22, 21)), ("right", (24, 23, 25)))
+        for attempt, value in enumerate(readings, start=1)
+    ]
+    skinfold_values = [
+        {
+            "measurement_code": code,
+            "laterality": "right",
+            "attempt_number": attempt,
+            "value": value,
+            "unit": "mm",
+        }
+        for code, readings in (
+            ("skinfold_biceps", (4, 5, 6)),
+            ("skinfold_triceps", (10, 11, 12)),
+            ("skinfold_subscapular", (15, 16, 17)),
+            ("skinfold_suprailiac", (20, 21, 22)),
+        )
+        for attempt, value in enumerate(readings, start=1)
+    ]
+    payload = {
+        "encounter_type": "follow_up",
+        "reason_for_assessment": "Medición corporal avanzada.",
+        "information_source": "care_team_observation",
+        "clinical_summary": "Se registran composición y función muscular.",
+        "advanced_measurements": [
+            {
+                "session_type": "circumference",
+                "measured_at": "2026-08-17T10:00:00Z",
+                "protocol_code": "institutional-circumferences",
+                "protocol_version": "v1",
+                "position": "standing",
+                "values": [
+                    {"measurement_code": "calf_circumference", "laterality": "left", "value": 31.2, "unit": "cm"},
+                    {"measurement_code": "calf_circumference", "laterality": "right", "value": 31.5, "unit": "cm"},
+                    {"measurement_code": "mid_upper_arm_circumference", "laterality": "right", "value": 25.4, "unit": "cm"},
+                    {"measurement_code": "waist_circumference", "value": 89.0, "unit": "cm"},
+                ],
+            },
+            {
+                "session_type": "handgrip",
+                "measured_at": "2026-08-17T10:05:00Z",
+                "protocol_code": "hospital-handgrip",
+                "protocol_version": "v1",
+                "device_manufacturer": "Jamar",
+                "device_model": "Hydraulic",
+                "position": "seated",
+                "values": handgrip_values,
+            },
+            {
+                "session_type": "skinfold_4",
+                "measured_at": "2026-08-17T10:10:00Z",
+                "protocol_code": "durnin-womersley-4",
+                "protocol_version": "v1",
+                "device_manufacturer": "Harpenden",
+                "device_model": "Clinical caliper",
+                "position": "standing",
+                "values": skinfold_values,
+            },
+            {
+                "session_type": "bioimpedance",
+                "measured_at": "2026-08-17T10:20:00Z",
+                "protocol_code": "device-reported-bia",
+                "protocol_version": "v1",
+                "device_manufacturer": "InBody",
+                "device_model": "Clinical demo",
+                "technology": "multifrequency_segmental",
+                "frequencies_khz": "5, 50, 250",
+                "position": "standing",
+                "preparation_status": "standard",
+                "fasting_hours": 4,
+                "recent_exercise": False,
+                "bladder_emptied": True,
+                "hydration_status": "usual",
+                "edema_present": False,
+                "values": [
+                    {"measurement_code": "resistance", "value": 510, "unit": "ohm"},
+                    {"measurement_code": "reactance", "value": 47, "unit": "ohm"},
+                    {"measurement_code": "phase_angle", "value": 5.3, "unit": "degree"},
+                    {"measurement_code": "fat_free_mass", "value": 48.2, "unit": "kg"},
+                ],
+            },
+        ],
+    }
+    created = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=payload,
+        headers=clinical_headers,
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert len(body["advanced_measurements"]) == 4
+    handgrip = next(
+        row for row in body["advanced_measurements"] if row["session_type"] == "handgrip"
+    )
+    assert handgrip["algorithm_version"] == "maximum-of-three-bilateral-v1"
+    grip_results = {row["measurement_code"]: row["value"] for row in handgrip["values"]}
+    assert grip_results["handgrip_max_left"] == "22.0000"
+    assert grip_results["handgrip_max_right"] == "25.0000"
+    assert grip_results["handgrip_max"] == "25.0000"
+    skinfold = next(
+        row for row in body["advanced_measurements"] if row["session_type"] == "skinfold_4"
+    )
+    skinfold_results = {row["measurement_code"]: row["value"] for row in skinfold["values"]}
+    assert skinfold_results["skinfold_sum_4"] == "53.0000"
+    bia = next(
+        row for row in body["advanced_measurements"] if row["session_type"] == "bioimpedance"
+    )
+    assert bia["technology"] == "multifrequency_segmental"
+    assert all(row["value_nature"] == "device_reported" for row in bia["values"])
+
+    encounter_id = body["encounter"]["id"]
+    assert client.post(
+        f"/api/v1/nutrition-care-encounters/{encounter_id}/finalize",
+        json={"version": 1},
+        headers=clinical_headers,
+    ).status_code == 200
+    summaries = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters"
+    ).json()["items"]
+    summary = next(row for row in summaries if row["id"] == encounter_id)
+    assert summary["documented_sections"] == ["context", "anthropometry"]
+
+    invalid = {**payload, "advanced_measurements": [payload["advanced_measurements"][1]]}
+    invalid["advanced_measurements"][0] = {
+        **invalid["advanced_measurements"][0],
+        "values": handgrip_values[:-1],
+    }
+    rejected = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=invalid,
+        headers=clinical_headers,
+    )
+    assert rejected.status_code == 422
+
+
 def test_anthropometry_requirements_prescription_intake_labs_and_alerts(client, db_session) -> None:
     admission = active_admission(db_session)
     auth = authenticate(client)

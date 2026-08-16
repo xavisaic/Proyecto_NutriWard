@@ -1,4 +1,4 @@
-# Backend (Fase 9.4)
+# Backend (Fase 9.5)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -26,10 +26,11 @@ La API clínica no expone `audit_logs`, exige CSRF en mutaciones y bloquea admin
 Alimentación con `403`. La única excepción es la proyección de seguridad alimentaria de
 solo lectura: Alimentación puede consultar sustancia, tipo, criticidad y manifestaciones
 alimentarias activas, sin fuentes, notas, actores ni alergias farmacológicas. La cabeza
-Alembic es `20260816_0013`; el modelo se documenta en
+Alembic es `20260817_0014`; el modelo se documenta en
 `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`,
 `docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md` y
-`docs/planning/FASE-9.4-HISTORIA-EPISODIO-ACTUAL.md`.
+`docs/planning/FASE-9.4-HISTORIA-EPISODIO-ACTUAL.md`. Los protocolos de antropometría
+avanzada se detallan en `docs/planning/FASE-9.5-ANTROPOMETRIA-AVANZADA.md`.
 
 La historia del episodio actual es una narrativa exclusiva de la hospitalización. Cada
 actualización inserta una versión clínica inmutable con fuente, fecha, autor y motivo; la
@@ -40,6 +41,12 @@ reevaluaciones y acciones específicas requieren contexto y síntesis, pero pued
 un subconjunto de módulos. `nutrition-latest` resuelve cada dato vigente desde la evolución
 finalizada más reciente que realmente lo modificó, evitando que un control parcial oculte
 una prescripción, un PES o un tamizaje previo.
+
+Las mediciones avanzadas se guardan por sesión con protocolo, dispositivo, condiciones,
+valores originales y resultados derivados. El backend calcula el máximo de tres intentos
+por mano y bilateral, y la media de tres lecturas por cada pliegue más la sumatoria de los
+cuatro sitios. Las salidas BIA son informadas por el equipo y no se interpretan ni
+recalculan automáticamente.
 
 ## Ejecución local
 

@@ -35,6 +35,7 @@ import { EmptyState, ErrorState, LoadingState, SectionCard, StatusBadge } from '
 import {
   ApiError,
   apiRequest,
+  NutritionAdvancedMeasurementSession,
   NutritionEncounterList,
   NutritionEncounterRead,
   NutritionLatest,
@@ -102,6 +103,87 @@ const MEASUREMENT_LABELS: Record<string, string> = {
   recumbent_length: 'Longitud acostado', estimated_height: 'Talla estimada',
   mid_upper_arm_circumference: 'Perímetro braquial', head_circumference: 'Perímetro cefálico',
   waist_circumference: 'Perímetro de cintura', body_mass_index: 'IMC calculado',
+}
+
+const ADVANCED_MEASUREMENT_LABELS: Record<string, string> = {
+  calf_circumference: 'Circunferencia de pantorrilla',
+  mid_upper_arm_circumference: 'Circunferencia braquial',
+  waist_circumference: 'Circunferencia de cintura',
+  handgrip_strength: 'Fuerza de agarre',
+  handgrip_max_left: 'Máximo izquierdo', handgrip_max_right: 'Máximo derecho',
+  handgrip_max: 'Máximo bilateral',
+  skinfold_biceps: 'Pliegue bicipital',
+  skinfold_triceps: 'Pliegue tricipital',
+  skinfold_subscapular: 'Pliegue subescapular',
+  skinfold_suprailiac: 'Pliegue suprailiaco',
+  skinfold_biceps_mean: 'Media bicipital', skinfold_triceps_mean: 'Media tricipital',
+  skinfold_subscapular_mean: 'Media subescapular', skinfold_suprailiac_mean: 'Media suprailiaca',
+  skinfold_sum_4: 'Sumatoria de 4 pliegues',
+  resistance: 'Resistencia', reactance: 'Reactancia', phase_angle: 'Ángulo de fase',
+  total_body_water: 'Agua corporal total', extracellular_water: 'Agua extracelular',
+  intracellular_water: 'Agua intracelular', fat_mass: 'Masa grasa',
+  body_fat_percentage: 'Grasa corporal', fat_free_mass: 'Masa libre de grasa',
+  skeletal_muscle_mass: 'Masa muscular esquelética',
+  skeletal_muscle_mass_index: 'Índice de masa muscular esquelética',
+}
+
+type AdvancedSessionType = NutritionAdvancedMeasurementSession['session_type']
+type AdvancedDraftState = Record<string, string>
+
+const ADVANCED_PROTOCOLS: Record<AdvancedSessionType, [string, string]> = {
+  circumference: ['institutional-circumferences', 'v1'],
+  handgrip: ['hospital-handgrip', 'v1'],
+  skinfold_4: ['durnin-womersley-4', 'v1'],
+  bioimpedance: ['device-reported-bia', 'v1'],
+}
+const CIRCUMFERENCE_FIELDS = [
+  ['calf_circumference', 'left', 'Pantorrilla izquierda'],
+  ['calf_circumference', 'right', 'Pantorrilla derecha'],
+  ['mid_upper_arm_circumference', 'left', 'Braquial izquierda'],
+  ['mid_upper_arm_circumference', 'right', 'Braquial derecha'],
+  ['waist_circumference', 'none', 'Cintura'],
+] as const
+const SKINFOLD_FIELDS = [
+  ['skinfold_biceps', 'Bicipital'], ['skinfold_triceps', 'Tricipital'],
+  ['skinfold_subscapular', 'Subescapular'], ['skinfold_suprailiac', 'Suprailiaco'],
+] as const
+const BIA_FIELDS = [
+  ['resistance', 'Resistencia', 'ohm'], ['reactance', 'Reactancia', 'ohm'],
+  ['phase_angle', 'Ángulo de fase', 'degree'], ['total_body_water', 'Agua corporal total', 'L'],
+  ['extracellular_water', 'Agua extracelular', 'L'], ['intracellular_water', 'Agua intracelular', 'L'],
+  ['fat_mass', 'Masa grasa', 'kg'], ['body_fat_percentage', 'Grasa corporal', '%'],
+  ['fat_free_mass', 'Masa libre de grasa', 'kg'], ['skeletal_muscle_mass', 'Masa muscular esquelética', 'kg'],
+  ['skeletal_muscle_mass_index', 'Índice de masa muscular', 'kg/m2'],
+] as const
+
+function advancedValueKey(type: AdvancedSessionType, code: string, laterality = 'none', attempt = 0) {
+  return `${type}.value.${code}.${laterality}.${attempt}`
+}
+function advancedMetaKey(type: AdvancedSessionType, field: string) { return `${type}.meta.${field}` }
+function advancedValue(state: AdvancedDraftState, key: string) { return state[key] ?? '' }
+
+function advancedFromEncounter(record: NutritionEncounterRead): AdvancedDraftState {
+  const result: AdvancedDraftState = {}
+  for (const session of record.advanced_measurements ?? []) {
+    const type = session.session_type
+    const metadata: Record<string, unknown> = {
+      measured_at: session.measured_at?.slice(0, 16), device_manufacturer: session.device_manufacturer,
+      device_model: session.device_model, device_serial: session.device_serial, technology: session.technology,
+      frequencies_khz: session.frequencies_khz, position: session.position, source: session.source,
+      reliability: session.reliability, preparation_status: session.preparation_status,
+      fasting_hours: session.fasting_hours, recent_exercise: session.recent_exercise,
+      bladder_emptied: session.bladder_emptied, hydration_status: session.hydration_status,
+      edema_present: session.edema_present, observations: session.observations,
+    }
+    for (const [field, value] of Object.entries(metadata)) {
+      if (value !== null && value !== undefined) result[advancedMetaKey(type, field)] = String(value)
+    }
+    for (const row of session.values) {
+      if (row.value_nature === 'calculated') continue
+      result[advancedValueKey(type, row.measurement_code, row.laterality, row.attempt_number ?? 0)] = String(row.value)
+    }
+  }
+  return result
 }
 
 function formatDate(value: unknown, time = true) {
@@ -253,7 +335,7 @@ function fromEncounter(record: NutritionEncounterRead): EditorState {
 function sectionsFromEncounter(record: NutritionEncounterRead): number[] {
   const sections = new Set<number>([0, 9])
   if (record.assessment) { sections.add(1); sections.add(4) }
-  if (record.anthropometry.length) sections.add(2)
+  if (record.anthropometry.length || (record.advanced_measurements ?? []).length) sections.add(2)
   if (record.screenings.length) sections.add(3)
   if (record.intake.length || record.labs.length) sections.add(5)
   if (record.requirements.length) sections.add(6)
@@ -265,7 +347,82 @@ function sectionsFromEncounter(record: NutritionEncounterRead): number[] {
 function numberOrUndefined(value: string) { return value.trim() ? Number(value) : undefined }
 function localIso(value: string) { return value ? new Date(value).toISOString() : undefined }
 
-function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXES) {
+function optionalBoolean(value: string) {
+  if (value === '') return undefined
+  return value === 'true'
+}
+
+function buildAdvancedMeasurements(state: AdvancedDraftState, now: string) {
+  const meta = (type: AdvancedSessionType, field: string) => advancedValue(state, advancedMetaKey(type, field))
+  const base = (type: AdvancedSessionType) => ({
+    session_type: type,
+    measured_at: localIso(meta(type, 'measured_at')) ?? now,
+    protocol_code: ADVANCED_PROTOCOLS[type][0], protocol_version: ADVANCED_PROTOCOLS[type][1],
+    device_manufacturer: meta(type, 'device_manufacturer') || undefined,
+    device_model: meta(type, 'device_model') || undefined,
+    device_serial: meta(type, 'device_serial') || undefined,
+    technology: meta(type, 'technology') || undefined,
+    frequencies_khz: meta(type, 'frequencies_khz') || undefined,
+    position: meta(type, 'position') || undefined,
+    source: 'clinical_measurement', reliability: meta(type, 'reliability') || 'unknown',
+    observations: meta(type, 'observations') || undefined,
+  })
+  const sessions: Array<Record<string, unknown>> = []
+
+  const circumferenceValues = CIRCUMFERENCE_FIELDS.flatMap(([code, laterality]) => {
+    const value = advancedValue(state, advancedValueKey('circumference', code, laterality))
+    return value ? [{ measurement_code: code, body_site: code, laterality, value: Number(value), unit: 'cm' }] : []
+  })
+  if (circumferenceValues.length) sessions.push({ ...base('circumference'), values: circumferenceValues })
+
+  const handgripValues = (['left', 'right'] as const).flatMap((laterality) => [1, 2, 3].flatMap((attempt) => {
+    const value = advancedValue(state, advancedValueKey('handgrip', 'handgrip_strength', laterality, attempt))
+    return value ? [{ measurement_code: 'handgrip_strength', body_site: 'hand', laterality, attempt_number: attempt, value: Number(value), unit: 'kgf' }] : []
+  }))
+  if (handgripValues.length) sessions.push({ ...base('handgrip'), values: handgripValues })
+
+  const skinfoldValues = SKINFOLD_FIELDS.flatMap(([code]) => [1, 2, 3].flatMap((attempt) => {
+    const value = advancedValue(state, advancedValueKey('skinfold_4', code, 'right', attempt))
+    return value ? [{ measurement_code: code, body_site: code, laterality: 'right', attempt_number: attempt, value: Number(value), unit: 'mm' }] : []
+  }))
+  if (skinfoldValues.length) sessions.push({ ...base('skinfold_4'), values: skinfoldValues })
+
+  const bioimpedanceValues = BIA_FIELDS.flatMap(([code, , unit]) => {
+    const value = advancedValue(state, advancedValueKey('bioimpedance', code))
+    return value ? [{ measurement_code: code, laterality: 'none', value: Number(value), unit }] : []
+  })
+  if (bioimpedanceValues.length) sessions.push({
+    ...base('bioimpedance'),
+    preparation_status: meta('bioimpedance', 'preparation_status') || undefined,
+    fasting_hours: numberOrUndefined(meta('bioimpedance', 'fasting_hours')),
+    recent_exercise: optionalBoolean(meta('bioimpedance', 'recent_exercise')),
+    bladder_emptied: optionalBoolean(meta('bioimpedance', 'bladder_emptied')),
+    hydration_status: meta('bioimpedance', 'hydration_status') || undefined,
+    edema_present: optionalBoolean(meta('bioimpedance', 'edema_present')),
+    values: bioimpedanceValues,
+  })
+  return sessions
+}
+
+function validateAdvancedMeasurements(state: AdvancedDraftState): string[] {
+  const errors: string[] = []
+  const meta = (type: AdvancedSessionType, field: string) => advancedValue(state, advancedMetaKey(type, field))
+  const grip = (['left', 'right'] as const).flatMap((side) => [1, 2, 3].map((attempt) => advancedValue(state, advancedValueKey('handgrip', 'handgrip_strength', side, attempt))))
+  if (grip.some(Boolean) && (!grip.every(Boolean) || !meta('handgrip', 'device_manufacturer') || !meta('handgrip', 'device_model') || !meta('handgrip', 'position'))) {
+    errors.push('Dinamometría: complete tres intentos por mano, fabricante, modelo y posición.')
+  }
+  const skinfolds = SKINFOLD_FIELDS.flatMap(([code]) => [1, 2, 3].map((attempt) => advancedValue(state, advancedValueKey('skinfold_4', code, 'right', attempt))))
+  if (skinfolds.some(Boolean) && (!skinfolds.every(Boolean) || !meta('skinfold_4', 'device_manufacturer') || !meta('skinfold_4', 'device_model'))) {
+    errors.push('Pliegues: complete los tres intentos de los cuatro sitios e identifique el plicómetro.')
+  }
+  const bia = BIA_FIELDS.map(([code]) => advancedValue(state, advancedValueKey('bioimpedance', code)))
+  if (bia.some(Boolean) && (!meta('bioimpedance', 'device_manufacturer') || !meta('bioimpedance', 'device_model') || !meta('bioimpedance', 'technology'))) {
+    errors.push('Bioimpedancia: identifique fabricante, modelo y tecnología del equipo.')
+  }
+  return errors
+}
+
+function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXES, advanced: AdvancedDraftState = {}) {
   const now = new Date().toISOString()
   const includes = (section: number) => selectedSections.includes(section)
   const hasFollowUpDetails = Boolean(
@@ -305,6 +462,7 @@ function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXE
       suggested_reassessment_at: localIso(editor.suggested_reassessment_at), observed_at: now,
     } : null,
     anthropometry,
+    advanced_measurements: includes(2) ? buildAdvancedMeasurements(advanced, now) : [],
     screenings: includes(3) ? [{ tool_code: editor.screening_tool, tool_version: editor.screening_tool === 'nrs_2002' ? 'ESPEN 2002' : editor.screening_tool === 'strongkids' ? 'original' : 'institutional-policy-pending', applied_at: now, no_tool_reason: editor.screening_tool === 'none' ? editor.no_tool_reason : null, answers }] : [],
     requirements,
     diagnoses: includes(7) && editor.pes_problem && editor.pes_etiology && editor.pes_signs ? [{ problem: editor.pes_problem, etiology: editor.pes_etiology, signs_and_symptoms: editor.pes_signs, priority: 1, status: 'active' }] : [],
@@ -318,12 +476,85 @@ function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXE
   }
 }
 
+function AdvancedNumberField({ label, unit, value, onChange }: {
+  label: string; unit: string; value: string; onChange: (value: string) => void
+}) {
+  return <TextField
+    fullWidth type="number" label={label} value={value} onChange={(event) => onChange(event.target.value)}
+    inputProps={{ min: 0, step: '0.1' }} helperText={unit}
+  />
+}
+
+function AdvancedAnthropometryEditor({ state, setValue }: {
+  state: AdvancedDraftState; setValue: (key: string, value: string) => void
+}) {
+  const value = (type: AdvancedSessionType, code: string, laterality = 'none', attempt = 0) =>
+    advancedValue(state, advancedValueKey(type, code, laterality, attempt))
+  const setMeasurement = (type: AdvancedSessionType, code: string, next: string, laterality = 'none', attempt = 0) =>
+    setValue(advancedValueKey(type, code, laterality, attempt), next)
+  const meta = (type: AdvancedSessionType, field: string) => advancedValue(state, advancedMetaKey(type, field))
+  const setMeta = (type: AdvancedSessionType, field: string, next: string) => setValue(advancedMetaKey(type, field), next)
+  const panel = { border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }
+  const deviceFields = (type: AdvancedSessionType, noun: string) => <Grid container spacing={2}>
+    <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label={`Fabricante del ${noun}`} value={meta(type, 'device_manufacturer')} onChange={(e) => setMeta(type, 'device_manufacturer', e.target.value)} /></Grid>
+    <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label={`Modelo del ${noun}`} value={meta(type, 'device_model')} onChange={(e) => setMeta(type, 'device_model', e.target.value)} /></Grid>
+    <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="N.º de serie (opcional)" value={meta(type, 'device_serial')} onChange={(e) => setMeta(type, 'device_serial', e.target.value)} /></Grid>
+  </Grid>
+  const booleanSelect = (type: AdvancedSessionType, field: string, label: string) => <FormControl fullWidth>
+    <InputLabel>{label}</InputLabel><Select label={label} value={meta(type, field)} onChange={(e) => setMeta(type, field, e.target.value)}>
+      <MenuItem value=""><em>Sin registrar</em></MenuItem><MenuItem value="false">No</MenuItem><MenuItem value="true">Sí</MenuItem>
+    </Select>
+  </FormControl>
+
+  return <Stack spacing={2}>
+    <Box sx={panel}><Stack spacing={2}>
+      <Box><Typography fontWeight={800}>Circunferencias</Typography><Typography variant="body2" color="text.secondary">Registre sólo las mediciones realizadas, en centímetros.</Typography></Box>
+      <Grid container spacing={2}>{CIRCUMFERENCE_FIELDS.map(([code, laterality, label]) => <Grid key={`${code}-${laterality}`} size={{ xs: 12, sm: 6, md: 4 }}><AdvancedNumberField label={label} unit="cm" value={value('circumference', code, laterality)} onChange={(next) => setMeasurement('circumference', code, next, laterality)} /></Grid>)}
+        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Posición del paciente" placeholder="De pie, sentado o decúbito" value={meta('circumference', 'position')} onChange={(e) => setMeta('circumference', 'position', e.target.value)} /></Grid>
+      </Grid>
+    </Stack></Box>
+
+    <Box sx={panel}><Stack spacing={2}>
+      <Box><Typography fontWeight={800}>Fuerza de agarre con dinamómetro</Typography><Typography variant="body2" color="text.secondary">Tres intentos por mano en kgf. NutriWard conserva los seis valores y calcula los máximos por lado y bilateral.</Typography></Box>
+      {deviceFields('handgrip', 'dinamómetro')}
+      <TextField fullWidth label="Posición y protocolo aplicado" placeholder="Sentado, hombro aducido, codo a 90°" value={meta('handgrip', 'position')} onChange={(e) => setMeta('handgrip', 'position', e.target.value)} />
+      <Grid container spacing={2}>{(['left', 'right'] as const).flatMap((side) => [1, 2, 3].map((attempt) => <Grid key={`${side}-${attempt}`} size={{ xs: 12, sm: 6, md: 4 }}><AdvancedNumberField label={`${side === 'left' ? 'Izquierda' : 'Derecha'} · intento ${attempt}`} unit="kgf" value={value('handgrip', 'handgrip_strength', side, attempt)} onChange={(next) => setMeasurement('handgrip', 'handgrip_strength', next, side, attempt)} /></Grid>))}</Grid>
+    </Stack></Box>
+
+    <Box sx={panel}><Stack spacing={2}>
+      <Box><Typography fontWeight={800}>Cuatro pliegues · Durnin–Womersley</Typography><Typography variant="body2" color="text.secondary">Tres lecturas derechas en cada sitio. El backend calcula la media por sitio y su sumatoria; no estima porcentaje de grasa.</Typography></Box>
+      {deviceFields('skinfold_4', 'plicómetro')}
+      {SKINFOLD_FIELDS.map(([code, label]) => <Box key={code}><Typography variant="subtitle2" mb={1}>{label}</Typography><Grid container spacing={2}>{[1, 2, 3].map((attempt) => <Grid key={attempt} size={{ xs: 12, sm: 4 }}><AdvancedNumberField label={`Intento ${attempt}`} unit="mm" value={value('skinfold_4', code, 'right', attempt)} onChange={(next) => setMeasurement('skinfold_4', code, next, 'right', attempt)} /></Grid>)}</Grid></Box>)}
+    </Stack></Box>
+
+    <Box sx={panel}><Stack spacing={2}>
+      <Box><Typography fontWeight={800}>Bioimpedancia clínica</Typography><Typography variant="body2" color="text.secondary">Se conservan las salidas informadas por el equipo y las condiciones de medición. NutriWard no genera interpretación automática.</Typography></Box>
+      {deviceFields('bioimpedance', 'bioimpedanciómetro')}
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Tecnología" placeholder="Monofrecuencia, multifrecuencia…" value={meta('bioimpedance', 'technology')} onChange={(e) => setMeta('bioimpedance', 'technology', e.target.value)} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Frecuencias (kHz)" value={meta('bioimpedance', 'frequencies_khz')} onChange={(e) => setMeta('bioimpedance', 'frequencies_khz', e.target.value)} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Posición" value={meta('bioimpedance', 'position')} onChange={(e) => setMeta('bioimpedance', 'position', e.target.value)} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><FormControl fullWidth><InputLabel>Preparación</InputLabel><Select label="Preparación" value={meta('bioimpedance', 'preparation_status')} onChange={(e) => setMeta('bioimpedance', 'preparation_status', e.target.value)}><MenuItem value=""><em>Sin registrar</em></MenuItem><MenuItem value="standard">Estándar</MenuItem><MenuItem value="nonstandard">No estándar</MenuItem><MenuItem value="unknown">Desconocida</MenuItem></Select></FormControl></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><AdvancedNumberField label="Horas de ayuno" unit="h" value={meta('bioimpedance', 'fasting_hours')} onChange={(next) => setMeta('bioimpedance', 'fasting_hours', next)} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><FormControl fullWidth><InputLabel>Hidratación</InputLabel><Select label="Hidratación" value={meta('bioimpedance', 'hydration_status')} onChange={(e) => setMeta('bioimpedance', 'hydration_status', e.target.value)}><MenuItem value=""><em>Sin registrar</em></MenuItem><MenuItem value="usual">Habitual</MenuItem><MenuItem value="altered">Alterada</MenuItem><MenuItem value="unknown">Desconocida</MenuItem></Select></FormControl></Grid>
+        <Grid size={{ xs: 12, md: 4 }}>{booleanSelect('bioimpedance', 'recent_exercise', 'Ejercicio reciente')}</Grid>
+        <Grid size={{ xs: 12, md: 4 }}>{booleanSelect('bioimpedance', 'bladder_emptied', 'Vejiga vaciada')}</Grid>
+        <Grid size={{ xs: 12, md: 4 }}>{booleanSelect('bioimpedance', 'edema_present', 'Edema presente')}</Grid>
+      </Grid>
+      <Divider /><Typography variant="subtitle2">Resultados informados por el equipo</Typography>
+      <Grid container spacing={2}>{BIA_FIELDS.map(([code, label, unit]) => <Grid key={code} size={{ xs: 12, sm: 6, md: 4 }}><AdvancedNumberField label={label} unit={unit} value={value('bioimpedance', code)} onChange={(next) => setMeasurement('bioimpedance', code, next)} /></Grid>)}</Grid>
+      <TextField fullWidth multiline minRows={2} label="Observaciones de la medición" value={meta('bioimpedance', 'observations')} onChange={(e) => setMeta('bioimpedance', 'observations', e.target.value)} />
+    </Stack></Box>
+  </Stack>
+}
+
 function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSections, onClose, onSaved }: {
   open: boolean, record: NutritionEncounterRead | null, admissionId: string, csrfToken: string,
   mode: EvolutionMode, presetSections?: number[],
   onClose: () => void, onSaved: () => void,
 }) {
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR)
+  const [advanced, setAdvanced] = useState<AdvancedDraftState>({})
   const [activeSection, setActiveSection] = useState(0)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -339,6 +570,7 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
       const encounterType = mode === 'initial' ? 'initial_assessment'
         : mode === 'follow_up' ? 'follow_up' : 'other'
       setEditor(record ? fromEncounter(record) : { ...EMPTY_EDITOR, encounter_type: encounterType })
+      setAdvanced(record ? advancedFromEncounter(record) : {})
       setSelectedSections(sections)
       setDirty(false); setActiveSection(sections[0] ?? 0); setError(null); setSectionErrors([])
     }
@@ -353,22 +585,27 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
   function set(name: keyof EditorState, value: string) {
     setEditor((current) => ({ ...current, [name]: value })); setDirty(true)
   }
+  function setAdvancedValue(key: string, value: string) {
+    setAdvanced((current) => ({ ...current, [key]: value })); setDirty(true)
+  }
   function close() {
     if (dirty && !window.confirm('Hay cambios sin guardar. ¿Desea cerrar el editor?')) return
     onClose()
   }
   async function save(finalize = false) {
     if (finalize && !window.confirm('¿Confirma registrar y finalizar esta evolución? Luego será inmutable y cualquier cambio requerirá una corrección.')) return
+    const advancedErrors = selectedSections.includes(2) ? validateAdvancedMeasurements(advanced) : []
+    if (advancedErrors.length) { setSectionErrors(advancedErrors); setActiveSection(2); return }
     setSaving(true); setError(null); setSectionErrors([])
     try {
       let saved: NutritionEncounterRead
       if (record) {
         saved = await apiRequest(`/nutrition-care-encounters/${record.encounter.id}`, {
-          method: 'PATCH', body: JSON.stringify({ ...buildPayload(editor, selectedSections), version: record.encounter.version }),
+          method: 'PATCH', body: JSON.stringify({ ...buildPayload(editor, selectedSections, advanced), version: record.encounter.version }),
         }, csrfToken)
       } else {
         saved = await apiRequest(`/admissions/${admissionId}/nutrition-care-encounters`, {
-          method: 'POST', body: JSON.stringify(buildPayload(editor, selectedSections)),
+          method: 'POST', body: JSON.stringify(buildPayload(editor, selectedSections, advanced)),
         }, csrfToken)
       }
       if (finalize) {
@@ -443,12 +680,16 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
           <Grid size={12}><FormControl fullWidth><InputLabel>Población clínica</InputLabel><Select label="Población clínica" value={editor.population_group} onChange={(e) => { const population = e.target.value; setEditor((current) => ({ ...current, population_group: population, screening_tool: SCREENING_DEFAULTS[population] })); setDirty(true) }}>{Object.entries(POPULATION_LABELS).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select><FormHelperText>Cambiar población adapta el formulario y no borra los demás datos.</FormHelperText></FormControl></Grid>
         </Grid>}
         {activeSection === 1 && <Stack spacing={2}><TextField label="Motivo de hospitalización" value={editor.hospitalization_reason} onChange={(e) => set('hospitalization_reason', e.target.value)} multiline minRows={2} /><TextField label="Vía de alimentación actual" value={editor.current_feeding_route} onChange={(e) => set('current_feeding_route', e.target.value)} /><TextField label="Apetito y cambios recientes" value={editor.appetite} onChange={(e) => set('appetite', e.target.value)} multiline minRows={2} /></Stack>}
-        {activeSection === 2 && <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 5 }}><FormControl fullWidth><InputLabel>Tipo de peso</InputLabel><Select label="Tipo de peso" value={editor.weight_type} onChange={(e) => set('weight_type', e.target.value)}>{Object.entries(MEASUREMENT_LABELS).filter(([value]) => value.includes('weight')).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select></FormControl></Grid>
-          <Grid size={{ xs: 8, md: 5 }}><TextField fullWidth type="number" label="Peso" value={editor.weight_value} onChange={(e) => set('weight_value', e.target.value)} inputProps={{ min: 0, step: '0.01' }} /></Grid><Grid size={{ xs: 4, md: 2 }}><TextField fullWidth label="Unidad" value="kg" disabled /></Grid>
-          <Grid size={{ xs: 8, md: 10 }}><TextField fullWidth type="number" label="Talla de pie" value={editor.height_value} onChange={(e) => set('height_value', e.target.value)} inputProps={{ min: 0, step: '0.1' }} /></Grid><Grid size={{ xs: 4, md: 2 }}><TextField fullWidth label="Unidad" value="cm" disabled /></Grid>
-          <Grid size={12}><Alert severity="info">El IMC se calcula en backend. Ningún tipo de peso se reemplaza automáticamente por peso ideal o ajustado.</Alert></Grid>
-        </Grid>}
+        {activeSection === 2 && <Stack spacing={2.5}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 5 }}><FormControl fullWidth><InputLabel>Tipo de peso</InputLabel><Select label="Tipo de peso" value={editor.weight_type} onChange={(e) => set('weight_type', e.target.value)}>{Object.entries(MEASUREMENT_LABELS).filter(([value]) => value.includes('weight')).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select></FormControl></Grid>
+            <Grid size={{ xs: 8, md: 5 }}><TextField fullWidth type="number" label="Peso" value={editor.weight_value} onChange={(e) => set('weight_value', e.target.value)} inputProps={{ min: 0, step: '0.01' }} /></Grid><Grid size={{ xs: 4, md: 2 }}><TextField fullWidth label="Unidad" value="kg" disabled /></Grid>
+            <Grid size={{ xs: 8, md: 10 }}><TextField fullWidth type="number" label="Talla de pie" value={editor.height_value} onChange={(e) => set('height_value', e.target.value)} inputProps={{ min: 0, step: '0.1' }} /></Grid><Grid size={{ xs: 4, md: 2 }}><TextField fullWidth label="Unidad" value="cm" disabled /></Grid>
+            <Grid size={12}><Alert severity="info">El IMC se calcula en backend. Ningún tipo de peso se reemplaza automáticamente por peso ideal o ajustado.</Alert></Grid>
+          </Grid>
+          <Divider><Chip label="Mediciones avanzadas opcionales" /></Divider>
+          <AdvancedAnthropometryEditor state={advanced} setValue={setAdvancedValue} />
+        </Stack>}
         {activeSection === 3 && <Stack spacing={2}>
           <FormControl fullWidth><InputLabel>Herramienta de tamizaje</InputLabel><Select label="Herramienta de tamizaje" value={editor.screening_tool} onChange={(e) => set('screening_tool', e.target.value)}><MenuItem value="nrs_2002">NRS-2002 · ESPEN</MenuItem><MenuItem value="strongkids">STRONGkids</MenuItem><MenuItem value="none">Sin herramienta definida</MenuItem></Select><FormHelperText>Predeterminada para {POPULATION_LABELS[editor.population_group]}: {SCREENING_DEFAULTS[editor.population_group]}</FormHelperText></FormControl>
           {editor.screening_tool === 'nrs_2002' && <Grid container spacing={2}>{[['nrs_nutrition', 'Puntaje nutricional'], ['nrs_disease', 'Gravedad de enfermedad']].map(([name, label]) => <Grid key={name} size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label={label} value={editor[name as keyof EditorState]} onChange={(e) => set(name as keyof EditorState, e.target.value)} inputProps={{ min: 0, max: 3 }} /></Grid>)}<Grid size={{ xs: 12, md: 4 }}><FormControl fullWidth><InputLabel>Edad ≥ 70 años</InputLabel><Select label="Edad ≥ 70 años" value={editor.nrs_age} onChange={(e) => set('nrs_age', e.target.value)}><MenuItem value="false">No</MenuItem><MenuItem value="true">Sí</MenuItem></Select></FormControl></Grid></Grid>}
@@ -573,6 +814,12 @@ function EncounterViewer({ record, onClose }: { record: NutritionEncounterRead, 
     <Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Fecha" value={formatDate(record.encounter.encounter_datetime)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={record.author_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Tipo" value={TYPE_LABELS[record.encounter.encounter_type]} /></Grid><Grid size={12}><FieldValue label="Motivo" value={record.encounter.reason_for_assessment} /></Grid><Grid size={12}><FieldValue label="Síntesis" value={record.encounter.clinical_summary} /></Grid></Grid>
     {record.assessment && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Evaluación</Typography><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(record.assessment.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={record.assessment.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={record.assessment.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={record.assessment.digestive_findings} /></Grid></Grid></>}
     {record.anthropometry.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Antropometría</Typography>{record.anthropometry.map((row) => <Typography key={text(row.id)}>{MEASUREMENT_LABELS[text(row.measurement_type)] || text(row.measurement_type)}: {text(row.value)} {text(row.unit)}</Typography>)}</>}
+    {(record.advanced_measurements ?? []).length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Mediciones antropométricas avanzadas</Typography><Stack spacing={2}>{(record.advanced_measurements ?? []).map((session) => <Box key={session.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5 }}><Stack spacing={1}>
+      <Stack direction="row" justifyContent="space-between" gap={1} flexWrap="wrap"><Typography fontWeight={800}>{session.session_type === 'circumference' ? 'Circunferencias' : session.session_type === 'handgrip' ? 'Dinamometría' : session.session_type === 'skinfold_4' ? 'Cuatro pliegues Durnin–Womersley' : 'Bioimpedancia clínica'}</Typography><Chip size="small" variant="outlined" label={`${session.protocol_code} ${session.protocol_version}`} /></Stack>
+      <Typography variant="caption" color="text.secondary">{formatDate(session.measured_at)}{session.device_manufacturer ? ` · ${session.device_manufacturer} ${session.device_model ?? ''}` : ''}{session.position ? ` · ${session.position}` : ''}</Typography>
+      <Grid container spacing={1}>{session.values.map((row) => <Grid key={row.id} size={{ xs: 12, sm: 6 }}><Typography variant="body2"><strong>{ADVANCED_MEASUREMENT_LABELS[row.measurement_code] || row.measurement_code}</strong>{row.laterality !== 'none' ? ` · ${row.laterality === 'left' ? 'izquierda' : row.laterality === 'right' ? 'derecha' : 'bilateral'}` : ''}{row.attempt_number ? ` · intento ${row.attempt_number}` : ''}: {text(row.value)} {row.unit} {row.value_nature === 'calculated' && <Chip component="span" size="small" color="primary" label="calculado" sx={{ ml: 0.5 }} />}</Typography></Grid>)}</Grid>
+      {session.session_type === 'bioimpedance' && <Typography variant="caption" color="text.secondary">Preparación: {session.preparation_status ?? 'no registrada'} · Hidratación: {session.hydration_status ?? 'no registrada'} · Edema: {session.edema_present === null ? 'no registrado' : session.edema_present ? 'sí' : 'no'}</Typography>}
+    </Stack></Box>)}</Stack></>}
     {record.screenings.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Tamizaje</Typography>{record.screenings.map((row) => <Typography key={text(row.id)}>{text(row.tool_code)} · puntaje {text(row.total_score)} · {text(row.classification)}</Typography>)}</>}
     {record.requirements.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Requerimientos</Typography>{record.requirements.map((row) => <Typography key={text(row.id)}>{text(row.nutrient_code)}: {text(row.adopted_result)} {text(row.unit)} · {text(row.method)}</Typography>)}</>}
     {record.diagnoses.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Diagnósticos PES</Typography>{record.diagnoses.map((row) => <Typography key={text(row.id)}>{text(row.generated_statement)}</Typography>)}</>}

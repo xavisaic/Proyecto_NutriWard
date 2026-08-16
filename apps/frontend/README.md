@@ -1,4 +1,4 @@
-# Frontend (Fase 9.4)
+# Frontend (Fase 9.5)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
@@ -12,6 +12,11 @@ La línea de tiempo muestra qué cambió en cada evolución. Evaluación, Prescr
 y Exámenes permiten iniciar actualizaciones directamente. El editor guarda borradores sólo
 mediante acción explícita, advierte cambios sin guardar, confirma antes de finalizar,
 permite cancelar borradores y muestra conflictos de versión.
+
+El módulo Antropometría incorpora bloques opcionales para circunferencias, dinamometría,
+cuatro pliegues Durnin–Womersley y bioimpedancia. La interfaz exige series completas y la
+identificación del dispositivo cuando el protocolo lo requiere; al consultar la evolución
+muestra tanto los datos originales como los resultados calculados por el backend.
 
 La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas en hasta 100
 filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso

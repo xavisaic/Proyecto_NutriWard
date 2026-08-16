@@ -67,6 +67,42 @@ describe('Ficha nutricional clínica', () => {
     expect(payload.prescription).toBeNull()
   })
 
+  it('registra circunferencias y la serie bilateral de dinamometría en una evolución', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') return response({
+        encounter: { id: 'enc-anthro', status: 'draft', version: 1 }, assessment: null,
+        context_items: [], anthropometry: [], advanced_measurements: [], screenings: [], requirements: [],
+        diagnoses: [], prescription: null, monitoring: [], intake: [], labs: [], alerts: [],
+      }, 201)
+      return response(emptyList)
+    })
+    render(<NutritionClinicalTab tab="care" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar evolución' }))
+    await userEvent.click(screen.getByRole('button', { name: /Acción específica/ }))
+    await userEvent.click(screen.getByText('Antropometría'))
+    await userEvent.click(screen.getByRole('button', { name: '3' }))
+
+    expect(screen.getByText('Cuatro pliegues · Durnin–Womersley')).toBeInTheDocument()
+    expect(screen.getByText('Bioimpedancia clínica')).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Pantorrilla izquierda' }), '31.5')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Fabricante del dinamómetro' }), 'Jamar')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Modelo del dinamómetro' }), 'Plus+')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Posición y protocolo aplicado' }), 'Sentado, codo a 90 grados')
+    for (const [label, result] of [
+      ['Izquierda · intento 1', '20'], ['Izquierda · intento 2', '22'], ['Izquierda · intento 3', '21'],
+      ['Derecha · intento 1', '24'], ['Derecha · intento 2', '25'], ['Derecha · intento 3', '23'],
+    ]) await userEvent.type(screen.getByRole('spinbutton', { name: label }), result)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    const payload = JSON.parse(String(createCall?.[1]?.body))
+    expect(payload.advanced_measurements).toHaveLength(2)
+    expect(payload.advanced_measurements[0].values[0]).toMatchObject({ measurement_code: 'calf_circumference', laterality: 'left', value: 31.5, unit: 'cm' })
+    expect(payload.advanced_measurements[1]).toMatchObject({ session_type: 'handgrip', protocol_code: 'hospital-handgrip', device_manufacturer: 'Jamar', device_model: 'Plus+' })
+    expect(payload.advanced_measurements[1].values).toHaveLength(6)
+  }, 15_000)
+
   it('permite iniciar una modificación de prescripción desde su propio módulo', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
     render(<NutritionClinicalTab tab="prescription" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)

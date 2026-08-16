@@ -377,6 +377,43 @@ export interface NutritionEncounterList {
   page_size: number
 }
 
+export interface NutritionAdvancedMeasurementValue {
+  id: string
+  measurement_code: string
+  body_site: string | null
+  laterality: 'none' | 'left' | 'right' | 'bilateral'
+  attempt_number: number | null
+  value: number | string
+  unit: string
+  value_nature: 'measured' | 'calculated' | 'device_reported'
+  observations: string | null
+}
+
+export interface NutritionAdvancedMeasurementSession {
+  id: string
+  session_type: 'circumference' | 'handgrip' | 'skinfold_4' | 'bioimpedance'
+  measured_at: string
+  protocol_code: string
+  protocol_version: string
+  algorithm_version: string | null
+  device_manufacturer: string | null
+  device_model: string | null
+  device_serial: string | null
+  technology: string | null
+  frequencies_khz: string | null
+  position: string | null
+  source: string | null
+  reliability: 'high' | 'medium' | 'low' | 'unknown'
+  preparation_status: 'standard' | 'nonstandard' | 'unknown' | null
+  fasting_hours: number | string | null
+  recent_exercise: boolean | null
+  bladder_emptied: boolean | null
+  hydration_status: 'usual' | 'altered' | 'unknown' | null
+  edema_present: boolean | null
+  observations: string | null
+  values: NutritionAdvancedMeasurementValue[]
+}
+
 export interface NutritionEncounterRead {
   encounter: NutritionEncounterSummary & {
     reason_for_assessment: string | null
@@ -389,6 +426,7 @@ export interface NutritionEncounterRead {
   assessment: Record<string, unknown> | null
   context_items: Array<Record<string, unknown>>
   anthropometry: Array<Record<string, unknown>>
+  advanced_measurements?: NutritionAdvancedMeasurementSession[]
   screenings: Array<Record<string, unknown>>
   requirements: Array<Record<string, unknown>>
   diagnoses: Array<Record<string, unknown>>

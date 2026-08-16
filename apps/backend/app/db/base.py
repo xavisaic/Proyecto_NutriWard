@@ -32,6 +32,8 @@ from app.models.nutrition import (  # noqa: F401
     NutritionalDiagnosis,
     NutritionalIntakeRecord,
     NutritionalLabObservation,
+    NutritionalMeasurementSession,
+    NutritionalMeasurementValue,
     NutritionalMonitoringRecord,
     NutritionalPrescription,
     NutritionalPrescriptionMealTime,

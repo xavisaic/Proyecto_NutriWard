@@ -80,6 +80,144 @@ class AnthropometricMeasurementInput(BaseModel):
         return self
 
 
+ADVANCED_PROTOCOLS = {
+    "circumference": ("institutional-circumferences", "v1"),
+    "handgrip": ("hospital-handgrip", "v1"),
+    "skinfold_4": ("durnin-womersley-4", "v1"),
+    "bioimpedance": ("device-reported-bia", "v1"),
+}
+SKINFOLD_CODES = {
+    "skinfold_biceps",
+    "skinfold_triceps",
+    "skinfold_subscapular",
+    "skinfold_suprailiac",
+}
+BIA_UNITS = {
+    "resistance": "ohm",
+    "reactance": "ohm",
+    "phase_angle": "degree",
+    "total_body_water": "L",
+    "extracellular_water": "L",
+    "intracellular_water": "L",
+    "fat_mass": "kg",
+    "body_fat_percentage": "%",
+    "fat_free_mass": "kg",
+    "skeletal_muscle_mass": "kg",
+    "skeletal_muscle_mass_index": "kg/m2",
+}
+
+
+class AdvancedMeasurementValueInput(BaseModel):
+    measurement_code: str = Field(min_length=1, max_length=80)
+    body_site: str | None = Field(default=None, max_length=80)
+    laterality: str = Field(default="none", pattern="^(none|left|right|bilateral)$")
+    attempt_number: int | None = Field(default=None, ge=1, le=3)
+    value: Decimal = Field(ge=0)
+    unit: str = Field(min_length=1, max_length=20)
+    observations: str | None = Field(default=None, max_length=1000)
+
+    _optional = field_validator("body_site", "observations")(normalize_optional_text)
+
+
+class AdvancedMeasurementSessionInput(BaseModel):
+    session_type: str = Field(
+        pattern="^(circumference|handgrip|skinfold_4|bioimpedance)$"
+    )
+    measured_at: datetime
+    protocol_code: str = Field(min_length=1, max_length=80)
+    protocol_version: str = Field(min_length=1, max_length=40)
+    device_manufacturer: str | None = Field(default=None, max_length=120)
+    device_model: str | None = Field(default=None, max_length=120)
+    device_serial: str | None = Field(default=None, max_length=120)
+    technology: str | None = Field(default=None, max_length=80)
+    frequencies_khz: str | None = Field(default=None, max_length=200)
+    position: str | None = Field(default=None, max_length=80)
+    source: str | None = Field(default=None, max_length=80)
+    reliability: str = Field(default="unknown", pattern="^(high|medium|low|unknown)$")
+    preparation_status: str | None = Field(
+        default=None, pattern="^(standard|nonstandard|unknown)$"
+    )
+    fasting_hours: Decimal | None = Field(default=None, ge=0, le=72)
+    recent_exercise: bool | None = None
+    bladder_emptied: bool | None = None
+    hydration_status: str | None = Field(
+        default=None, pattern="^(usual|altered|unknown)$"
+    )
+    edema_present: bool | None = None
+    observations: str | None = Field(default=None, max_length=3000)
+    values: list[AdvancedMeasurementValueInput] = Field(min_length=1, max_length=100)
+
+    _optional = field_validator(
+        "device_manufacturer",
+        "device_model",
+        "device_serial",
+        "technology",
+        "frequencies_khz",
+        "position",
+        "source",
+        "observations",
+    )(normalize_optional_text)
+
+    @model_validator(mode="after")
+    def validate_protocol_and_values(self):
+        expected_protocol = ADVANCED_PROTOCOLS[self.session_type]
+        if (self.protocol_code, self.protocol_version) != expected_protocol:
+            raise ValueError("El protocolo o su versión no corresponde al tipo de medición.")
+        keys = [
+            (value.measurement_code, value.laterality, value.attempt_number)
+            for value in self.values
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError("La sesión contiene mediciones repetidas para el mismo intento.")
+
+        if self.session_type == "circumference":
+            allowed = {
+                "calf_circumference",
+                "mid_upper_arm_circumference",
+                "waist_circumference",
+            }
+            if any(value.measurement_code not in allowed for value in self.values):
+                raise ValueError("La sesión contiene una circunferencia no configurada.")
+            if any(value.unit != "cm" or value.attempt_number is not None for value in self.values):
+                raise ValueError("Las circunferencias se registran una vez y en centímetros.")
+        elif self.session_type == "handgrip":
+            if not self.device_manufacturer or not self.device_model or not self.position:
+                raise ValueError("La dinamometría requiere dispositivo y posición.")
+            expected = {(side, attempt) for side in ("left", "right") for attempt in (1, 2, 3)}
+            supplied = {
+                (value.laterality, value.attempt_number)
+                for value in self.values
+                if value.measurement_code == "handgrip_strength" and value.unit == "kgf"
+            }
+            if len(self.values) != 6 or supplied != expected:
+                raise ValueError("Registre tres intentos en kgf para cada mano.")
+        elif self.session_type == "skinfold_4":
+            if not self.device_manufacturer or not self.device_model:
+                raise ValueError("La medición de pliegues requiere identificar el plicómetro.")
+            expected = {(code, attempt) for code in SKINFOLD_CODES for attempt in (1, 2, 3)}
+            supplied = {
+                (value.measurement_code, value.attempt_number)
+                for value in self.values
+                if value.unit == "mm" and value.laterality == "right"
+            }
+            if len(self.values) != 12 or supplied != expected:
+                raise ValueError(
+                    "Durnin–Womersley requiere tres intentos derechos en bíceps, "
+                    "tríceps, subescapular y suprailiaco."
+                )
+        else:
+            if not self.device_manufacturer or not self.device_model or not self.technology:
+                raise ValueError("La bioimpedancia requiere dispositivo y tecnología.")
+            if any(
+                value.measurement_code not in BIA_UNITS
+                or value.unit != BIA_UNITS[value.measurement_code]
+                or value.attempt_number is not None
+                for value in self.values
+            ):
+                raise ValueError("Los resultados de bioimpedancia no respetan el catálogo de unidades.")
+        return self
+
+
 class ScreeningAnswerInput(BaseModel):
     answer_code: str = Field(min_length=1, max_length=80)
     answer_value: str = Field(min_length=1, max_length=500)
@@ -232,6 +370,7 @@ class NutritionEncounterCreate(BaseModel):
     assessment: AssessmentInput | None = None
     context_items: list[ClinicalContextItemInput] = Field(default_factory=list)
     anthropometry: list[AnthropometricMeasurementInput] = Field(default_factory=list)
+    advanced_measurements: list[AdvancedMeasurementSessionInput] = Field(default_factory=list)
     screenings: list[ScreeningInput] = Field(default_factory=list)
     requirements: list[RequirementCalculationInput] = Field(default_factory=list)
     diagnoses: list[DiagnosisInput] = Field(default_factory=list)
@@ -297,6 +436,7 @@ class NutritionEncounterRead(BaseModel):
     assessment: dict[str, Any] | None
     context_items: list[dict[str, Any]]
     anthropometry: list[dict[str, Any]]
+    advanced_measurements: list[dict[str, Any]]
     screenings: list[dict[str, Any]]
     requirements: list[dict[str, Any]]
     diagnoses: list[dict[str, Any]]
@@ -331,6 +471,7 @@ class NutritionCatalogs(BaseModel):
     population_groups: list[str]
     information_sources: list[str]
     measurement_types: list[str]
+    advanced_measurement_protocols: list[dict[str, Any]]
     meal_times: list[str]
     requirement_methods: list[dict[str, Any]]
     screening_defaults: dict[str, str]
