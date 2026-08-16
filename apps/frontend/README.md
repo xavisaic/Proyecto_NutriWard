@@ -1,15 +1,17 @@
-# Frontend (Fase 9.2)
+# Frontend (Fase 9.3)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
-Resumen, Atenciones, Evaluación, Prescripción, Minutas e ingesta, Exámenes, Movimientos e
-Historial son funcionales. Atenciones contiene el editor clínico de diez secciones; las
-otras pestañas clínicas son proyecciones de atenciones finalizadas. Balance nitrogenado,
-Hoja horaria y Bitácora continúan como placeholders.
+Resumen, Evolución nutricional, Evaluación, Prescripción, Minutas e ingesta, Exámenes,
+Movimientos e Historial son funcionales. Evolución nutricional ofrece evaluación inicial,
+seguimiento rápido y acción específica. Estos dos últimos flujos abren sólo los módulos
+seleccionados. Balance nitrogenado, Hoja horaria y Bitácora continúan como placeholders.
 
 Administrador no ve pestañas ni resumen nutricional. Alimentación no accede a la ficha.
-El editor guarda borradores sólo mediante acción explícita, advierte cambios sin guardar,
-confirma la finalización y muestra conflictos de versión.
+La línea de tiempo muestra qué cambió en cada evolución. Evaluación, Prescripción, Ingesta
+y Exámenes permiten iniciar actualizaciones directamente. El editor guarda borradores sólo
+mediante acción explícita, advierte cambios sin guardar, confirma antes de finalizar,
+permite cancelar borradores y muestra conflictos de versión.
 
 La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas en hasta 100
 filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso

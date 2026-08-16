@@ -74,7 +74,7 @@ describe('Ficha del paciente', () => {
     expect(await screen.findByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Episodio' })).toHaveTextContent('ADM-ACTIVA')
     expect(screen.getByText('Inicio de hospitalización')).toBeInTheDocument()
-    expect(await screen.findByText('Sin atención finalizada')).toBeInTheDocument()
+    expect(await screen.findByText('Sin evolución finalizada')).toBeInTheDocument()
   })
 
   it('normaliza una pestaña desconocida sin cargar placeholders', async () => {
@@ -103,12 +103,12 @@ describe('Ficha del paciente', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/operational-timeline'))).toBe(true))
   })
 
-  it('explica Atenciones sin modalidad presencial o remota y diferencia Bitácora', async () => {
+  it('presenta la evolución modular y diferencia Bitácora', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-care-encounters')
       ? response({ items: [], total: 0, page: 1, page_size: 20 })
       : response(summary))
     renderChart('care')
-    expect(await screen.findByText(/no registran ubicación física ni modalidad presencial\/remota/)).toBeInTheDocument()
+    expect(await screen.findByText(/Línea de tiempo clínica orientada a cambios/)).toBeInTheDocument()
     cleanup()
     renderChart('logbook')
     expect(await screen.findByText(/independiente de la auditoría técnica/)).toBeInTheDocument()

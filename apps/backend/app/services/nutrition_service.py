@@ -593,7 +593,49 @@ def list_encounters(
         )
     all_rows = list(session.exec(statement.order_by(NutritionalCareEncounter.encounter_datetime.desc(), NutritionalCareEncounter.id.desc())).all())
     start = (page - 1) * page_size
-    return NutritionEncounterList(items=[NutritionEncounterSummary(**_dump(row), author_name=_user_name(session, row.author_professional_id) or "Profesional no disponible") for row in all_rows[start:start + page_size]], total=len(all_rows), page=page, page_size=page_size)
+    return NutritionEncounterList(
+        items=[
+            NutritionEncounterSummary(
+                **_dump(row),
+                author_name=_user_name(session, row.author_professional_id)
+                or "Profesional no disponible",
+                documented_sections=_documented_sections(session, row),
+            )
+            for row in all_rows[start:start + page_size]
+        ],
+        total=len(all_rows),
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _documented_sections(
+    session: Session, encounter: NutritionalCareEncounter
+) -> list[str]:
+    sections: list[str] = []
+    if encounter.reason_for_assessment or encounter.information_source or encounter.clinical_summary:
+        sections.append("context")
+    if session.exec(
+        select(NutritionalAssessment.id).where(
+            NutritionalAssessment.encounter_id == encounter.id
+        )
+    ).first():
+        sections.append("assessment")
+    checks = (
+        ("anthropometry", NutritionalAnthropometricMeasurement),
+        ("screening", NutritionalScreening),
+        ("requirements", NutritionalRequirementCalculation),
+        ("diagnoses", NutritionalDiagnosis),
+        ("prescription", NutritionalPrescription),
+        ("monitoring", NutritionalMonitoringRecord),
+        ("intake", NutritionalIntakeRecord),
+        ("labs", NutritionalLabObservation),
+        ("alerts", NutritionalAlert),
+    )
+    for label, model in checks:
+        if session.exec(select(model.id).where(model.encounter_id == encounter.id)).first():
+            sections.append(label)
+    return sections
 
 
 def _finalization_errors(session: Session, encounter: NutritionalCareEncounter) -> list[str]:
@@ -605,13 +647,18 @@ def _finalization_errors(session: Session, encounter: NutritionalCareEncounter) 
         errors.append("Contexto: indique la fuente de información.")
     if not encounter.clinical_summary:
         errors.append("Seguimiento: agregue una síntesis clínica.")
-    if assessment is None:
-        errors.append("Evaluación: declare la población clínica.")
-    screenings = _rows(session, NutritionalScreening, encounter.id)
-    if not screenings:
-        errors.append("Tamizaje: registre una herramienta o documente que no aplica.")
-    if not _rows(session, NutritionalDiagnosis, encounter.id):
-        errors.append("Diagnóstico PES: registre al menos un diagnóstico estructurado.")
+    if encounter.encounter_type == "initial_assessment":
+        if assessment is None:
+            errors.append("Evaluación inicial: declare la población clínica.")
+        screenings = _rows(session, NutritionalScreening, encounter.id)
+        if not screenings:
+            errors.append(
+                "Evaluación inicial: registre un tamizaje o documente que no aplica."
+            )
+        if not _rows(session, NutritionalDiagnosis, encounter.id):
+            errors.append(
+                "Evaluación inicial: registre al menos un diagnóstico PES estructurado."
+            )
     return errors
 
 
@@ -729,38 +776,102 @@ def latest_nutrition(session: Session, admission_id: uuid.UUID) -> NutritionLate
     if not finals:
         return NutritionLatest(admission_id=admission_id, latest_encounter=None, latest_screening=None, nutritional_status=None, active_diagnoses=[], current_prescription=None, adopted_requirements=[], active_alerts=[], suggested_reassessment_at=None)
     latest = finals[0]
-    assessment = session.exec(select(NutritionalAssessment).where(NutritionalAssessment.encounter_id == latest.id)).first()
+    nutritional_status = None
+    suggested_reassessment_at = None
     screening = None
+    screening_seen = False
     prescription = None
+    prescription_seen = False
+    diagnoses: list[NutritionalDiagnosis] = []
+    diagnoses_seen = False
+    requirements: list[NutritionalRequirementCalculation] = []
+    requirements_seen = False
+    alerts: list[NutritionalAlert] = []
+    alerts_seen = False
     for final in finals:
-        if screening is None:
+        current_assessment = None
+        if nutritional_status is None or suggested_reassessment_at is None:
+            current_assessment = session.exec(
+                select(NutritionalAssessment).where(
+                    NutritionalAssessment.encounter_id == final.id
+                )
+            ).first()
+        if nutritional_status is None and current_assessment is not None:
+            nutritional_status = current_assessment.nutritional_status
+        if suggested_reassessment_at is None and current_assessment is not None:
+            suggested_reassessment_at = current_assessment.suggested_reassessment_at
+        if not screening_seen:
             screening = session.exec(
                 select(NutritionalScreening)
                 .where(NutritionalScreening.encounter_id == final.id)
                 .order_by(NutritionalScreening.applied_at.desc(), NutritionalScreening.id.desc())
             ).first()
-        if prescription is None:
-            prescription = session.exec(
+            screening_seen = screening is not None
+        if not prescription_seen:
+            documented_prescription = session.exec(
                 select(NutritionalPrescription).where(
-                    NutritionalPrescription.encounter_id == final.id,
-                    NutritionalPrescription.status == "active",
+                    NutritionalPrescription.encounter_id == final.id
                 )
             ).first()
-        if screening is not None and prescription is not None:
-            break
-    diagnoses = list(session.exec(select(NutritionalDiagnosis).where(NutritionalDiagnosis.encounter_id == latest.id, NutritionalDiagnosis.status.in_(("active", "improved"))).order_by(NutritionalDiagnosis.priority, NutritionalDiagnosis.created_at.desc(), NutritionalDiagnosis.id)).all())
-    requirements = list(session.exec(select(NutritionalRequirementCalculation).where(NutritionalRequirementCalculation.encounter_id == latest.id).order_by(NutritionalRequirementCalculation.nutrient_code, NutritionalRequirementCalculation.id)).all())
-    alerts = list(session.exec(select(NutritionalAlert).where(NutritionalAlert.encounter_id == latest.id, NutritionalAlert.is_active.is_(True)).order_by(NutritionalAlert.severity.desc(), NutritionalAlert.created_at.desc(), NutritionalAlert.id)).all())
+            if documented_prescription is not None:
+                prescription_seen = True
+                prescription = (
+                    documented_prescription
+                    if documented_prescription.status == "active"
+                    else None
+                )
+        if not diagnoses_seen:
+            documented_diagnoses = list(session.exec(
+                select(NutritionalDiagnosis).where(
+                    NutritionalDiagnosis.encounter_id == final.id
+                ).order_by(
+                    NutritionalDiagnosis.priority,
+                    NutritionalDiagnosis.created_at.desc(),
+                    NutritionalDiagnosis.id,
+                )
+            ).all())
+            if documented_diagnoses:
+                diagnoses_seen = True
+                diagnoses = [
+                    row
+                    for row in documented_diagnoses
+                    if row.status in ("active", "improved")
+                ]
+        if not requirements_seen:
+            documented_requirements = list(session.exec(
+                select(NutritionalRequirementCalculation).where(
+                    NutritionalRequirementCalculation.encounter_id == final.id
+                ).order_by(
+                    NutritionalRequirementCalculation.nutrient_code,
+                    NutritionalRequirementCalculation.id,
+                )
+            ).all())
+            if documented_requirements:
+                requirements_seen = True
+                requirements = documented_requirements
+        if not alerts_seen:
+            documented_alerts = list(session.exec(
+                select(NutritionalAlert).where(
+                    NutritionalAlert.encounter_id == final.id
+                ).order_by(
+                    NutritionalAlert.severity.desc(),
+                    NutritionalAlert.created_at.desc(),
+                    NutritionalAlert.id,
+                )
+            ).all())
+            if documented_alerts:
+                alerts_seen = True
+                alerts = [row for row in documented_alerts if row.is_active]
     return NutritionLatest(
         admission_id=admission_id,
         latest_encounter={**_dump(latest), "professional_name": _user_name(session, latest.finalized_by or latest.author_professional_id)},
         latest_screening=_screening_with_answers(session, screening) if screening else None,
-        nutritional_status=assessment.nutritional_status if assessment else None,
+        nutritional_status=nutritional_status,
         active_diagnoses=[_dump(row) for row in diagnoses],
         current_prescription=_prescription_with_meals(session, prescription),
         adopted_requirements=[_dump(row) for row in requirements],
         active_alerts=[_dump(row) for row in alerts],
-        suggested_reassessment_at=assessment.suggested_reassessment_at if assessment else None,
+        suggested_reassessment_at=suggested_reassessment_at,
     )
 
 

@@ -249,6 +249,111 @@ def test_cancel_author_rules_historical_and_not_found(client, db_session) -> Non
     assert client.get(f"/api/v1/nutrition-care-encounters/{uuid.uuid4()}").status_code == 404
 
 
+def test_modular_follow_up_preserves_previous_clinical_projections(client, db_session) -> None:
+    admission = active_admission(db_session)
+    auth = authenticate(client)
+    headers = {"X-CSRF-Token": auth["csrf_token"]}
+    initial_payload = complete_payload()
+    initial_payload["prescription"] = {
+        "effective_from": "2026-08-13T12:00:00Z",
+        "primary_route": "oral",
+        "regimen_type": "Régimen liviano",
+        "energy_target": 1800,
+    }
+    initial = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=initial_payload,
+        headers=headers,
+    )
+    assert initial.status_code == 201, initial.text
+    initial_id = initial.json()["encounter"]["id"]
+    assert client.post(
+        f"/api/v1/nutrition-care-encounters/{initial_id}/finalize",
+        json={"version": 1},
+        headers=headers,
+    ).status_code == 200
+
+    follow_up = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json={
+            "encounter_type": "follow_up",
+            "reason_for_assessment": "Control diario de ingesta.",
+            "information_source": "patient_interview",
+            "clinical_summary": "Menor ingesta durante el almuerzo; reevaluar mañana.",
+            "intake": [{
+                "intake_date": "2026-08-14",
+                "meal_time": "lunch",
+                "consumed_percentage": 40,
+                "incomplete_reason": "Náuseas",
+                "source": "patient_interview",
+            }],
+        },
+        headers=headers,
+    )
+    assert follow_up.status_code == 201, follow_up.text
+    follow_up_id = follow_up.json()["encounter"]["id"]
+    finalized = client.post(
+        f"/api/v1/nutrition-care-encounters/{follow_up_id}/finalize",
+        json={"version": 1},
+        headers=headers,
+    )
+    assert finalized.status_code == 200, finalized.text
+
+    latest = client.get(f"/api/v1/admissions/{admission.id}/nutrition-latest").json()
+    assert latest["latest_encounter"]["id"] == follow_up_id
+    assert latest["nutritional_status"] == "Riesgo nutricional en evaluación."
+    assert latest["latest_screening"]["tool_code"] == "nrs_2002"
+    assert latest["active_diagnoses"][0]["problem"] == "Ingesta energética insuficiente"
+    assert latest["current_prescription"]["regimen_type"] == "Régimen liviano"
+
+    listed = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters"
+    ).json()["items"]
+    follow_up_summary = next(row for row in listed if row["id"] == follow_up_id)
+    assert follow_up_summary["documented_sections"] == ["context", "intake"]
+
+    resolution = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json={
+            "encounter_type": "follow_up",
+            "reason_for_assessment": "Cierre de objetivos nutricionales.",
+            "information_source": "combined",
+            "clinical_summary": "PES resuelto y prescripción discontinuada.",
+            "diagnoses": [{
+                "problem": "Ingesta energética insuficiente",
+                "etiology": "disminución del apetito",
+                "signs_and_symptoms": "cobertura recuperada",
+                "priority": 1,
+                "status": "resolved",
+                "resolved_at": "2026-08-15T10:00:00Z",
+            }],
+            "prescription": {
+                "effective_from": "2026-08-15T10:00:00Z",
+                "effective_until": "2026-08-15T10:00:00Z",
+                "status": "discontinued",
+                "primary_route": "oral",
+                "regimen_type": "Prescripción finalizada",
+            },
+        },
+        headers=headers,
+    )
+    assert resolution.status_code == 201, resolution.text
+    resolution_id = resolution.json()["encounter"]["id"]
+    assert client.post(
+        f"/api/v1/nutrition-care-encounters/{resolution_id}/finalize",
+        json={"version": 1},
+        headers=headers,
+    ).status_code == 200
+
+    resolved_latest = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-latest"
+    ).json()
+    assert resolved_latest["active_diagnoses"] == []
+    assert resolved_latest["current_prescription"] is None
+    assert resolved_latest["nutritional_status"] == "Riesgo nutricional en evaluación."
+    assert resolved_latest["latest_screening"]["tool_code"] == "nrs_2002"
+
+
 def test_anthropometry_requirements_prescription_intake_labs_and_alerts(client, db_session) -> None:
     admission = active_admission(db_session)
     auth = authenticate(client)

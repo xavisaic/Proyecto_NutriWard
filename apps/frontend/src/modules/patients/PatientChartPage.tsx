@@ -72,7 +72,7 @@ type ChartTab = typeof CANONICAL_TABS[number]
 const TAB_LABELS: Record<ChartTab, string> = {
   summary: 'Resumen',
   'clinical-context': 'Diagnósticos y antecedentes',
-  care: 'Atenciones',
+  care: 'Evolución nutricional',
   assessment: 'Evaluación',
   prescription: 'Prescripción',
   intake: 'Minutas e ingesta',
@@ -91,7 +91,7 @@ const CLINICAL_TABS = new Set<ChartTab>([
 
 const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 'movements' | 'history'>, { title: string; description: string }> = {
   care: {
-    title: 'Atenciones nutricionales',
+    title: 'Evolución nutricional',
     description: 'Una atención será una instancia temporal de trabajo nutricional vinculada al episodio. Podrá agrupar evaluaciones, cambios de prescripción, revisiones de ingesta o notas relacionadas. No implica presencia física y no registra modalidad presencial o remota.',
   },
   assessment: {

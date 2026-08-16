@@ -60,8 +60,9 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 - Bandeja de recepción por servicio, aceptación con o sin cama y terminales historizados.
 - Sincronización de mapa y bandeja, privacidad operacional y cobertura/apoyo trazable.
 - Cancelación automática de traslados abiertos al terminar una hospitalización.
-- Atenciones nutricionales en borrador, finalizadas, correctivas o canceladas, con
-  concurrencia optimista e inmutabilidad clínica.
+- Evoluciones nutricionales modulares en borrador, finalizadas, correctivas o canceladas,
+  con evaluación inicial, seguimiento rápido, acciones específicas, concurrencia
+  optimista e inmutabilidad clínica.
 - Ficha estructurada para adultos, pediatría, neonatología y embarazo.
 - Antropometría tipada, IMC y cambio de peso calculados en backend.
 - NRS-2002 y STRONGkids versionados; sin tamizaje neonatal o gestacional automático.
@@ -174,7 +175,7 @@ está disponible.
 
 ## Alcance
 
-Fase 9.2 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+Fase 9.3 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
 hospitalizaciones, mapa, traslados, ficha nutricional estructurada, contexto clínico y el
 registro longitudinal de alergias e intolerancias. Alimentación recibe en el mapa de camas
 una proyección mínima de seguridad que contiene sólo riesgos alimentarios activos. Raciones,

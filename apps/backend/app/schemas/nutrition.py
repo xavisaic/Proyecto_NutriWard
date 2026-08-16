@@ -278,6 +278,7 @@ class NutritionEncounterSummary(BaseModel):
     finalized_at: datetime | None
     corrected_encounter_id: uuid.UUID | None
     version: int
+    documented_sections: list[str] = Field(default_factory=list)
 
 
 class NutritionEncounterList(BaseModel):

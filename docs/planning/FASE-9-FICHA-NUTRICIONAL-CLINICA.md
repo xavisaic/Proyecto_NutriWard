@@ -29,8 +29,10 @@ confirmación profesional explícitas en una fase futura.
 - Sólo su autor o `jefatura` puede modificar el borrador.
 - Cada `PATCH` exige la versión vigente y la incrementa. Una versión obsoleta responde
   `409`.
-- Finalizar exige episodio activo, motivo, fuente, síntesis, población, tamizaje y al
-  menos un diagnóstico PES. Los errores se localizan por sección y responden `422`.
+- Finalizar siempre exige episodio activo, motivo, fuente y síntesis. La evaluación
+  inicial exige además población, tamizaje y al menos un diagnóstico PES; una evolución
+  de seguimiento o acción específica puede finalizar sólo con los módulos actualizados.
+  Los errores se localizan por sección y responden `422`.
 - `finalized` y `corrected` son inmutables. Una corrección crea un nuevo borrador con
   `corrected_encounter_id` y motivo; el original no cambia.
 - Cancelar conserva fila, actor, fecha, versión y motivo. No existe `DELETE` clínico.
@@ -161,17 +163,30 @@ llamadas clínicas para ellos.
 - `GET /api/v1/nutrition-catalogs`
 
 `nutrition-latest` sólo usa atenciones finalizadas/correctivas y permanece separado del
-`chart-summary` administrativo de Fase 8. Las proyecciones tienen orden determinista y
-paginación. Los borradores ajenos no aparecen en la lista de un nutricionista; jefatura
-puede administrarlos según política.
+`chart-summary` administrativo de Fase 8. Desde Fase 9.3 resuelve el último dato válido de
+cada módulo de forma independiente: una evolución parcial no oculta la evaluación, el
+tamizaje, los requerimientos, el PES ni la prescripción vigentes de una evolución anterior.
+Las proyecciones tienen orden determinista y paginación. Los borradores ajenos no aparecen
+en la lista de un nutricionista; jefatura puede administrarlos según política.
 
 ## Interfaz y estados
 
-Atenciones es el flujo de edición. El diálogo tiene diez secciones, progreso, navegación
-por teclado, unidades visibles, errores por sección, guardado explícito, confirmación de
-finalización, advertencia `beforeunload` y confirmación al cerrar con cambios. Evaluación,
-Prescripción, Minutas e ingesta, Exámenes y la tarjeta de Resumen son proyecciones de la
-misma atención. Balance nitrogenado, Hoja horaria y Bitácora siguen como placeholders.
+La ruta técnica de atenciones se conserva, pero la interfaz se presenta como **Evolución
+nutricional**. El profesional elige entre evaluación inicial completa, seguimiento rápido
+o acción específica. La inicial recorre las diez secciones; los otros modos permiten
+seleccionar sólo los módulos pertinentes y calculan el progreso sobre esa selección.
+Contexto y síntesis son obligatorios en toda evolución.
+
+La pestaña muestra una línea de tiempo con tipo, estado, fecha, autor, síntesis y módulos
+documentados. Evaluación, Prescripción, Minutas e ingesta y Exámenes ofrecen accesos
+directos que igualmente crean una evolución auditable. Los borradores pueden continuarse
+o cancelarse, y una corrección nunca modifica el registro finalizado original.
+
+El editor mantiene unidades visibles, errores por sección, guardado explícito,
+confirmación previa a la finalización, advertencia `beforeunload` y confirmación al cerrar
+con cambios. No se guarda contenido clínico en almacenamiento del navegador. La tarjeta
+de Resumen proyecta el último valor vigente de cada módulo. Balance nitrogenado, Hoja
+horaria y Bitácora siguen como placeholders.
 
 Se contemplan carga, vacío, error/reintento, `403`, `404`, `409`, episodio histórico y
 cambios sin guardar. Las solicitudes usan secuencia para descartar respuestas obsoletas al

@@ -42,6 +42,7 @@ import {
 } from '../../shared/services/api'
 
 type ClinicalTab = 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'
+type EvolutionMode = 'initial' | 'follow_up' | 'specific'
 
 const SECTIONS = [
   'Contexto de la atención',
@@ -55,6 +56,24 @@ const SECTIONS = [
   'Prescripción nutricional',
   'Objetivos, seguimiento y observaciones',
 ]
+
+const ALL_SECTION_INDEXES = SECTIONS.map((_, index) => index)
+const MODE_SECTIONS: Record<EvolutionMode, number[]> = {
+  initial: ALL_SECTION_INDEXES,
+  follow_up: [0, 4, 5, 9],
+  specific: [0, 9],
+}
+const MODE_LABELS: Record<EvolutionMode, string> = {
+  initial: 'Evaluación nutricional inicial',
+  follow_up: 'Seguimiento rápido',
+  specific: 'Acción específica',
+}
+const SECTION_SUMMARY_LABELS: Record<string, string> = {
+  context: 'Contexto', assessment: 'Evaluación', anthropometry: 'Antropometría',
+  screening: 'Tamizaje', requirements: 'Requerimientos', diagnoses: 'PES',
+  prescription: 'Prescripción', monitoring: 'Monitoreo', intake: 'Ingesta',
+  labs: 'Exámenes', alerts: 'Alertas',
+}
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Borrador', finalized: 'Finalizada', corrected: 'Corrección', cancelled: 'Cancelada',
@@ -231,28 +250,45 @@ function fromEncounter(record: NutritionEncounterRead): EditorState {
   }
 }
 
+function sectionsFromEncounter(record: NutritionEncounterRead): number[] {
+  const sections = new Set<number>([0, 9])
+  if (record.assessment) { sections.add(1); sections.add(4) }
+  if (record.anthropometry.length) sections.add(2)
+  if (record.screenings.length) sections.add(3)
+  if (record.intake.length || record.labs.length) sections.add(5)
+  if (record.requirements.length) sections.add(6)
+  if (record.diagnoses.length) sections.add(7)
+  if (record.prescription) sections.add(8)
+  return [...sections].sort((a, b) => a - b)
+}
+
 function numberOrUndefined(value: string) { return value.trim() ? Number(value) : undefined }
 function localIso(value: string) { return value ? new Date(value).toISOString() : undefined }
 
-function buildPayload(editor: EditorState) {
+function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXES) {
   const now = new Date().toISOString()
+  const includes = (section: number) => selectedSections.includes(section)
+  const hasFollowUpDetails = Boolean(
+    editor.objectives || editor.monitoring_plan || editor.pending_actions
+    || editor.suggested_reassessment_at,
+  )
   const anthropometry = []
-  if (editor.weight_value) anthropometry.push({ measurement_type: editor.weight_type, value: Number(editor.weight_value), unit: 'kg', measured_at: now, reliability: 'unknown', value_nature: editor.weight_type === 'current_weight_reported' ? 'reported' : 'measured' })
-  if (editor.height_value) anthropometry.push({ measurement_type: 'standing_height', value: Number(editor.height_value), unit: 'cm', measured_at: now, reliability: 'unknown', value_nature: 'measured' })
-  const answers = editor.screening_tool === 'nrs_2002' ? [
+  if (includes(2) && editor.weight_value) anthropometry.push({ measurement_type: editor.weight_type, value: Number(editor.weight_value), unit: 'kg', measured_at: now, reliability: 'unknown', value_nature: editor.weight_type === 'current_weight_reported' ? 'reported' : 'measured' })
+  if (includes(2) && editor.height_value) anthropometry.push({ measurement_type: 'standing_height', value: Number(editor.height_value), unit: 'cm', measured_at: now, reliability: 'unknown', value_nature: 'measured' })
+  const answers = includes(3) && editor.screening_tool === 'nrs_2002' ? [
     { answer_code: 'nutritional_status_score', answer_value: editor.nrs_nutrition },
     { answer_code: 'disease_severity_score', answer_value: editor.nrs_disease },
     { answer_code: 'age_70_or_more', answer_value: editor.nrs_age },
-  ] : editor.screening_tool === 'strongkids' ? [
+  ] : includes(3) && editor.screening_tool === 'strongkids' ? [
     { answer_code: 'subjective_clinical_assessment', answer_value: editor.strong_subjective },
     { answer_code: 'high_risk_disease', answer_value: editor.strong_disease },
     { answer_code: 'nutritional_intake_or_losses', answer_value: editor.strong_intake },
     { answer_code: 'weight_loss_or_poor_gain', answer_value: editor.strong_weight },
   ] : []
-  const requirements = editor.requirement_method === 'factorial' && editor.basal_result ? [{
+  const requirements = includes(6) && editor.requirement_method === 'factorial' && editor.basal_result ? [{
     nutrient_code: 'energy', method: 'factorial', unit: 'kcal/day',
     inputs: { basal_result: Number(editor.basal_result), activity_factor: Number(editor.activity_factor), stress_factor: Number(editor.stress_factor), thermal_factor: 1 },
-  }] : editor.requirement_method === 'manual' && editor.energy_result ? [{
+  }] : includes(6) && editor.requirement_method === 'manual' && editor.energy_result ? [{
     nutrient_code: 'energy', method: 'manual', unit: 'kcal/day', inputs: { measured_or_manual_value: Number(editor.energy_result) },
   }] : []
   return {
@@ -260,30 +296,31 @@ function buildPayload(editor: EditorState) {
     reason_for_assessment: editor.reason_for_assessment || null,
     information_source: editor.information_source || null,
     clinical_summary: editor.clinical_summary || null,
-    assessment: {
+    assessment: includes(1) || includes(4) || (includes(9) && hasFollowUpDetails) ? {
       population_group: editor.population_group, hospitalization_reason: editor.hospitalization_reason || null,
       current_feeding_route: editor.current_feeding_route || null, appetite: editor.appetite || null,
       clinical_findings: editor.clinical_findings || null, digestive_findings: editor.digestive_findings || null,
       nutritional_status: editor.nutritional_status || null, objectives: editor.objectives || null,
       monitoring_plan: editor.monitoring_plan || null, pending_actions: editor.pending_actions || null,
       suggested_reassessment_at: localIso(editor.suggested_reassessment_at), observed_at: now,
-    },
+    } : null,
     anthropometry,
-    screenings: [{ tool_code: editor.screening_tool, tool_version: editor.screening_tool === 'nrs_2002' ? 'ESPEN 2002' : editor.screening_tool === 'strongkids' ? 'original' : 'institutional-policy-pending', applied_at: now, no_tool_reason: editor.screening_tool === 'none' ? editor.no_tool_reason : null, answers }],
+    screenings: includes(3) ? [{ tool_code: editor.screening_tool, tool_version: editor.screening_tool === 'nrs_2002' ? 'ESPEN 2002' : editor.screening_tool === 'strongkids' ? 'original' : 'institutional-policy-pending', applied_at: now, no_tool_reason: editor.screening_tool === 'none' ? editor.no_tool_reason : null, answers }] : [],
     requirements,
-    diagnoses: editor.pes_problem && editor.pes_etiology && editor.pes_signs ? [{ problem: editor.pes_problem, etiology: editor.pes_etiology, signs_and_symptoms: editor.pes_signs, priority: 1, status: 'active' }] : [],
-    prescription: editor.regimen_type ? {
+    diagnoses: includes(7) && editor.pes_problem && editor.pes_etiology && editor.pes_signs ? [{ problem: editor.pes_problem, etiology: editor.pes_etiology, signs_and_symptoms: editor.pes_signs, priority: 1, status: 'active' }] : [],
+    prescription: includes(8) && editor.regimen_type ? {
       effective_from: now, primary_route: editor.prescription_route, regimen_type: editor.regimen_type,
       energy_target: numberOrUndefined(editor.energy_target), protein_target: numberOrUndefined(editor.protein_target),
       fluid_target: numberOrUndefined(editor.fluid_target), restrictions: editor.restrictions || null, meal_times: [],
     } : null,
-    intake: editor.intake_percentage ? [{ intake_date: now.slice(0, 10), meal_time: 'other', consumed_percentage: Number(editor.intake_percentage), incomplete_reason: editor.intake_reason || null, source: editor.information_source }] : [],
-    labs: editor.lab_name && editor.lab_value ? [{ test_name: editor.lab_name, value: editor.lab_value, unit: editor.lab_unit || null, sampled_at: now, source: 'trakcare_manual' }] : [],
+    intake: includes(5) && editor.intake_percentage ? [{ intake_date: now.slice(0, 10), meal_time: 'other', consumed_percentage: Number(editor.intake_percentage), incomplete_reason: editor.intake_reason || null, source: editor.information_source }] : [],
+    labs: includes(5) && editor.lab_name && editor.lab_value ? [{ test_name: editor.lab_name, value: editor.lab_value, unit: editor.lab_unit || null, sampled_at: now, source: 'trakcare_manual' }] : [],
   }
 }
 
-function NutritionEditor({ open, record, admissionId, csrfToken, onClose, onSaved }: {
+function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSections, onClose, onSaved }: {
   open: boolean, record: NutritionEncounterRead | null, admissionId: string, csrfToken: string,
+  mode: EvolutionMode, presetSections?: number[],
   onClose: () => void, onSaved: () => void,
 }) {
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR)
@@ -292,10 +329,20 @@ function NutritionEditor({ open, record, admissionId, csrfToken, onClose, onSave
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sectionErrors, setSectionErrors] = useState<string[]>([])
+  const [selectedSections, setSelectedSections] = useState<number[]>(MODE_SECTIONS[mode])
 
   useEffect(() => {
-    if (open) { setEditor(record ? fromEncounter(record) : EMPTY_EDITOR); setDirty(false); setActiveSection(0); setError(null); setSectionErrors([]) }
-  }, [open, record])
+    if (open) {
+      const sections = record
+        ? sectionsFromEncounter(record)
+        : [...(presetSections ?? MODE_SECTIONS[mode])]
+      const encounterType = mode === 'initial' ? 'initial_assessment'
+        : mode === 'follow_up' ? 'follow_up' : 'other'
+      setEditor(record ? fromEncounter(record) : { ...EMPTY_EDITOR, encounter_type: encounterType })
+      setSelectedSections(sections)
+      setDirty(false); setActiveSection(sections[0] ?? 0); setError(null); setSectionErrors([])
+    }
+  }, [mode, open, presetSections, record])
   useEffect(() => {
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -311,20 +358,20 @@ function NutritionEditor({ open, record, admissionId, csrfToken, onClose, onSave
     onClose()
   }
   async function save(finalize = false) {
+    if (finalize && !window.confirm('¿Confirma registrar y finalizar esta evolución? Luego será inmutable y cualquier cambio requerirá una corrección.')) return
     setSaving(true); setError(null); setSectionErrors([])
     try {
       let saved: NutritionEncounterRead
       if (record) {
         saved = await apiRequest(`/nutrition-care-encounters/${record.encounter.id}`, {
-          method: 'PATCH', body: JSON.stringify({ ...buildPayload(editor), version: record.encounter.version }),
+          method: 'PATCH', body: JSON.stringify({ ...buildPayload(editor, selectedSections), version: record.encounter.version }),
         }, csrfToken)
       } else {
         saved = await apiRequest(`/admissions/${admissionId}/nutrition-care-encounters`, {
-          method: 'POST', body: JSON.stringify(buildPayload(editor)),
+          method: 'POST', body: JSON.stringify(buildPayload(editor, selectedSections)),
         }, csrfToken)
       }
       if (finalize) {
-        if (!window.confirm('¿Confirma finalizar esta atención? Luego será inmutable y cualquier cambio requerirá una corrección.')) { setSaving(false); return }
         saved = await apiRequest(`/nutrition-care-encounters/${saved.encounter.id}/finalize`, {
           method: 'POST', body: JSON.stringify({ version: saved.encounter.version }),
         }, csrfToken)
@@ -333,24 +380,58 @@ function NutritionEditor({ open, record, admissionId, csrfToken, onClose, onSave
     } catch (caught) {
       const message = clinicalError(caught)
       setError(message)
-      if (caught instanceof ApiError && caught.status === 422) setSectionErrors(['Revise Contexto, Tamizaje, Diagnóstico PES y Seguimiento antes de finalizar.'])
+      if (caught instanceof ApiError && caught.status === 422) setSectionErrors([
+        editor.encounter_type === 'initial_assessment'
+          ? 'Revise Contexto, Tamizaje, Diagnóstico PES y Seguimiento antes de finalizar.'
+          : 'Revise el motivo, la fuente y la síntesis de la evolución.',
+      ])
     } finally { setSaving(false) }
   }
 
-  const progress = Math.round(([
+  const progressFields = [
     editor.reason_for_assessment, editor.hospitalization_reason, editor.weight_value,
     editor.screening_tool, editor.clinical_findings, editor.intake_percentage || editor.lab_name,
     editor.basal_result || editor.energy_result, editor.pes_problem, editor.regimen_type,
     editor.clinical_summary,
-  ].filter(Boolean).length / SECTIONS.length) * 100)
+  ]
+  const progress = Math.round((selectedSections.filter((section) => progressFields[section]).length
+    / Math.max(selectedSections.length, 1)) * 100)
+
+  function toggleSection(section: number) {
+    if (section === 0 || section === 9 || mode === 'initial') return
+    setSelectedSections((current) => {
+      const next = current.includes(section)
+        ? current.filter((value) => value !== section)
+        : [...current, section].sort((a, b) => a - b)
+      if (!next.includes(activeSection)) setActiveSection(next[0])
+      return next
+    })
+    setDirty(true)
+  }
 
   return <Dialog open={open} onClose={close} fullWidth maxWidth="lg" fullScreen={false} aria-labelledby="nutrition-editor-title">
-    <DialogTitle id="nutrition-editor-title">{record ? 'Continuar atención nutricional' : 'Nueva atención nutricional'}</DialogTitle>
+    <DialogTitle id="nutrition-editor-title">{record ? 'Continuar evolución nutricional' : MODE_LABELS[mode]}</DialogTitle>
     <DialogContent dividers>
       <Stack spacing={2.5}>
         <Box><Stack direction="row" justifyContent="space-between"><Typography variant="body2">Progreso por secciones</Typography><Typography variant="body2">{progress}%</Typography></Stack><LinearProgress variant="determinate" value={progress} /></Box>
-        <Stepper nonLinear activeStep={activeSection} sx={{ overflowX: 'auto', pb: 1 }}>
-          {SECTIONS.map((label, index) => <Step key={label}><StepButton onClick={() => setActiveSection(index)}>{index + 1}</StepButton></Step>)}
+        {mode !== 'initial' && !record && <Box>
+          <Typography variant="subtitle2" mb={1}>¿Qué información cambió en esta evolución?</Typography>
+          <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
+            {SECTIONS.map((label, index) => <Chip
+              key={label}
+              label={label}
+              clickable={index !== 0 && index !== 9}
+              color={selectedSections.includes(index) ? 'primary' : 'default'}
+              variant={selectedSections.includes(index) ? 'filled' : 'outlined'}
+              onClick={() => toggleSection(index)}
+            />)}
+          </Stack>
+          <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+            Contexto y síntesis se incluyen siempre. Los demás módulos son opcionales.
+          </Typography>
+        </Box>}
+        <Stepper nonLinear activeStep={selectedSections.indexOf(activeSection)} sx={{ overflowX: 'auto', pb: 1 }}>
+          {selectedSections.map((index) => <Step key={SECTIONS[index]}><StepButton onClick={() => setActiveSection(index)}>{index + 1}</StepButton></Step>)}
         </Stepper>
         <Typography variant="h6">{SECTIONS[activeSection]}</Typography>
         {error && <Alert severity="error">{error}</Alert>}
@@ -383,7 +464,7 @@ function NutritionEditor({ open, record, admissionId, csrfToken, onClose, onSave
         {activeSection === 9 && <Stack spacing={2}><TextField required label="Síntesis clínica" value={editor.clinical_summary} onChange={(e) => set('clinical_summary', e.target.value)} multiline minRows={3} /><TextField label="Objetivos" value={editor.objectives} onChange={(e) => set('objectives', e.target.value)} multiline minRows={2} /><TextField label="Plan de monitoreo" value={editor.monitoring_plan} onChange={(e) => set('monitoring_plan', e.target.value)} multiline minRows={2} /><TextField label="Pendientes" value={editor.pending_actions} onChange={(e) => set('pending_actions', e.target.value)} multiline minRows={2} /><TextField type="datetime-local" label="Fecha sugerida de reevaluación" value={editor.suggested_reassessment_at} onChange={(e) => set('suggested_reassessment_at', e.target.value)} InputLabelProps={{ shrink: true }} /></Stack>}
       </Stack>
     </DialogContent>
-    <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}><Button onClick={close}>Cerrar</Button><Button variant="outlined" disabled={saving} onClick={() => void save(false)}>Guardar borrador</Button><Button variant="contained" disabled={saving} onClick={() => void save(true)}>Guardar y finalizar</Button></DialogActions>
+    <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}><Button onClick={close}>Cerrar</Button><Button variant="outlined" disabled={saving} onClick={() => void save(false)}>Guardar borrador</Button><Button variant="contained" disabled={saving} onClick={() => void save(true)}>Registrar y finalizar</Button></DialogActions>
   </Dialog>
 }
 
@@ -403,15 +484,56 @@ function useClinicalData<T>(path: string | null, refreshKey: number) {
   return { data, loading, error, reload: load }
 }
 
+function modeForEncounter(type: string): EvolutionMode {
+  if (type === 'initial_assessment') return 'initial'
+  if (type === 'follow_up' || type === 'reassessment' || type === 'discharge_planning') return 'follow_up'
+  return 'specific'
+}
+
+function EvolutionStartDialog({ open, onClose, onSelect }: {
+  open: boolean; onClose: () => void; onSelect: (mode: EvolutionMode) => void
+}) {
+  const choices: Array<{ mode: EvolutionMode; description: string }> = [
+    { mode: 'follow_up', description: 'Documente sólo los cambios del control diario: clínica, ingesta y seguimiento.' },
+    { mode: 'specific', description: 'Registre peso, tamizaje, requerimientos, PES, prescripción o exámenes sin completar todo el formulario.' },
+    { mode: 'initial', description: 'Evaluación estructurada completa para el ingreso nutricional del paciente.' },
+  ]
+  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <DialogTitle>Registrar evolución nutricional</DialogTitle>
+    <DialogContent dividers><Stack spacing={1.5}>
+      <Typography color="text.secondary">Seleccione el flujo que mejor representa el trabajo realizado.</Typography>
+      {choices.map((choice) => <Button
+        key={choice.mode}
+        variant={choice.mode === 'follow_up' ? 'contained' : 'outlined'}
+        onClick={() => onSelect(choice.mode)}
+        sx={{ alignItems: 'flex-start', flexDirection: 'column', textAlign: 'left', py: 1.5 }}
+      >
+        <Typography fontWeight={800}>{MODE_LABELS[choice.mode]}</Typography>
+        <Typography variant="body2" sx={{ textTransform: 'none' }}>{choice.description}</Typography>
+      </Button>)}
+    </Stack></DialogContent>
+    <DialogActions><Button onClick={onClose}>Cancelar</Button></DialogActions>
+  </Dialog>
+}
+
 function CareTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string, historical: boolean, csrfToken: string, onChanged: () => void }) {
   const [refresh, setRefresh] = useState(0)
   const { data, loading, error, reload } = useClinicalData<NutritionEncounterList>(`/admissions/${admissionId}/nutrition-care-encounters`, refresh)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [startOpen, setStartOpen] = useState(false)
+  const [mode, setMode] = useState<EvolutionMode>('follow_up')
   const [selected, setSelected] = useState<NutritionEncounterRead | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   async function openRecord(id: string, edit = false) {
-    try { const record = await apiRequest<NutritionEncounterRead>(`/nutrition-care-encounters/${id}`); setSelected(record); setEditorOpen(edit) }
+    try {
+      const record = await apiRequest<NutritionEncounterRead>(`/nutrition-care-encounters/${id}`)
+      setMode(modeForEncounter(record.encounter.encounter_type))
+      setSelected(record); setEditorOpen(edit)
+    }
     catch (caught) { setActionError(clinicalError(caught)) }
+  }
+  function start(modeChoice: EvolutionMode) {
+    setMode(modeChoice); setSelected(null); setStartOpen(false); setEditorOpen(true)
   }
   async function correct(id: string, version: number) {
     const reason = window.prompt('Motivo de corrección (obligatorio):')
@@ -419,55 +541,100 @@ function CareTab({ admissionId, historical, csrfToken, onChanged }: { admissionI
     if (!window.confirm('Se creará un borrador correctivo enlazado. El original no será sobrescrito.')) return
     try {
       const record = await apiRequest<NutritionEncounterRead>(`/nutrition-care-encounters/${id}/correct`, { method: 'POST', body: JSON.stringify({ version, reason }) }, csrfToken)
+      setMode(modeForEncounter(record.encounter.encounter_type))
       setSelected(record); setEditorOpen(true); setRefresh((value) => value + 1)
     } catch (caught) { setActionError(clinicalError(caught)) }
   }
+  async function cancelDraft(id: string, version: number) {
+    const reason = window.prompt('Motivo de cancelación (obligatorio):')
+    if (!reason || reason.trim().length < 5) return
+    if (!window.confirm('El borrador quedará cancelado y se conservará para trazabilidad.')) return
+    try {
+      await apiRequest(`/nutrition-care-encounters/${id}/cancel`, {
+        method: 'POST', body: JSON.stringify({ version, reason }),
+      }, csrfToken)
+      setRefresh((value) => value + 1); onChanged()
+    } catch (caught) { setActionError(clinicalError(caught)) }
+  }
   return <Stack spacing={2}>
-    {historical && <Alert severity="info">Episodio histórico · Solo lectura. Las atenciones finalizadas permanecen disponibles.</Alert>}
+    {historical && <Alert severity="info">Episodio histórico · Solo lectura. Las evoluciones finalizadas permanecen disponibles.</Alert>}
     {actionError && <Alert severity="error">{actionError}</Alert>}
-    <SectionCard title="Atenciones nutricionales" description="Instancias temporales de trabajo clínico; no registran ubicación física ni modalidad presencial/remota." actions={!historical ? <Button variant="contained" startIcon={<ClipboardPlus size={17} />} onClick={() => { setSelected(null); setEditorOpen(true) }}>Nueva atención nutricional</Button> : undefined}>
-      {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando atenciones" rows={3} /> : !data?.items.length ? <EmptyState title="Sin atenciones" description="No hay documentación nutricional para esta hospitalización." action={!historical ? <Button onClick={() => setEditorOpen(true)}>Crear primer borrador</Button> : undefined} /> : <Stack spacing={1.5}>{data.items.map((item) => <Box key={item.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Typography fontWeight={800}>{TYPE_LABELS[item.encounter_type]}</Typography><StatusBadge label={STATUS_LABELS[item.status]} tone={item.status === 'draft' ? 'warning' : item.status === 'cancelled' ? 'neutral' : 'success'} /></Stack><Typography variant="body2">{formatDate(item.encounter_datetime)} · {item.author_name}</Typography><Typography variant="body2" color="text.secondary">{item.clinical_summary || 'Borrador sin síntesis clínica'}</Typography></Box><Stack direction="row" gap={1} flexWrap="wrap"><Button size="small" startIcon={<ExternalLink size={15} />} onClick={() => void openRecord(item.id)}>Ver</Button>{item.status === 'draft' && !historical && <Button size="small" startIcon={<Pencil size={15} />} onClick={() => void openRecord(item.id, true)}>Continuar borrador</Button>}{(item.status === 'finalized' || item.status === 'corrected') && !historical && <Button size="small" startIcon={<RotateCcw size={15} />} onClick={() => void correct(item.id, item.version)}>Corregir</Button>}</Stack></Stack></Box>)}</Stack>}
+    <SectionCard title="Evolución nutricional" description="Línea de tiempo clínica orientada a cambios. Cada evolución publica únicamente los módulos confirmados." actions={!historical ? <Button variant="contained" startIcon={<ClipboardPlus size={17} />} onClick={() => setStartOpen(true)}>Registrar evolución</Button> : undefined}>
+      {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando evoluciones" rows={3} /> : !data?.items.length ? <EmptyState title="Sin evoluciones nutricionales" description="No hay documentación nutricional para esta hospitalización." action={!historical ? <Button onClick={() => setStartOpen(true)}>Registrar primera evaluación</Button> : undefined} /> : <Stack spacing={0}>{data.items.map((item, index) => <Box key={item.id} sx={{ position: 'relative', pl: 3, pb: index === data.items.length - 1 ? 0 : 2.5, '&::before': index === data.items.length - 1 ? undefined : { content: '""', position: 'absolute', left: 7, top: 16, bottom: 0, borderLeft: 2, borderColor: 'divider' } }}><Box sx={{ position: 'absolute', left: 0, top: 8, width: 16, height: 16, borderRadius: '50%', bgcolor: item.status === 'draft' ? 'warning.main' : item.status === 'cancelled' ? 'text.disabled' : 'success.main', border: 3, borderColor: 'background.paper' }} /><Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box sx={{ minWidth: 0 }}><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Typography fontWeight={800}>{TYPE_LABELS[item.encounter_type]}</Typography><StatusBadge label={STATUS_LABELS[item.status]} tone={item.status === 'draft' ? 'warning' : item.status === 'cancelled' ? 'neutral' : 'success'} /></Stack><Typography variant="body2">{formatDate(item.encounter_datetime)} · {item.author_name}</Typography><Typography variant="body2" color="text.secondary">{item.clinical_summary || 'Borrador sin síntesis clínica'}</Typography><Stack direction="row" useFlexGap flexWrap="wrap" gap={0.5} mt={1}>{(item.documented_sections ?? []).map((section) => <Chip key={section} size="small" variant="outlined" label={SECTION_SUMMARY_LABELS[section] || section} />)}</Stack></Box><Stack direction="row" gap={1} flexWrap="wrap" alignItems="flex-start"><Button size="small" startIcon={<ExternalLink size={15} />} onClick={() => void openRecord(item.id)}>Ver</Button>{item.status === 'draft' && !historical && <><Button size="small" startIcon={<Pencil size={15} />} onClick={() => void openRecord(item.id, true)}>Continuar</Button><Button size="small" color="error" onClick={() => void cancelDraft(item.id, item.version)}>Cancelar</Button></>}{(item.status === 'finalized' || item.status === 'corrected') && !historical && <Button size="small" startIcon={<RotateCcw size={15} />} onClick={() => void correct(item.id, item.version)}>Corregir</Button>}</Stack></Stack></Box></Box>)}</Stack>}
     </SectionCard>
     {selected && !editorOpen && <EncounterViewer record={selected} onClose={() => setSelected(null)} />}
-    <NutritionEditor open={editorOpen} record={selected?.encounter.status === 'draft' ? selected : null} admissionId={admissionId} csrfToken={csrfToken} onClose={() => { setEditorOpen(false); setSelected(null) }} onSaved={() => { setEditorOpen(false); setSelected(null); setRefresh((value) => value + 1); onChanged() }} />
+    <EvolutionStartDialog open={startOpen} onClose={() => setStartOpen(false)} onSelect={start} />
+    <NutritionEditor open={editorOpen} record={selected?.encounter.status === 'draft' ? selected : null} admissionId={admissionId} csrfToken={csrfToken} mode={mode} onClose={() => { setEditorOpen(false); setSelected(null) }} onSaved={() => { setEditorOpen(false); setSelected(null); setRefresh((value) => value + 1); onChanged() }} />
   </Stack>
 }
 
 function EncounterViewer({ record, onClose }: { record: NutritionEncounterRead, onClose: () => void }) {
-  return <Dialog open onClose={onClose} fullWidth maxWidth="md"><DialogTitle>Atención nutricional · {STATUS_LABELS[record.encounter.status]}</DialogTitle><DialogContent dividers><Stack spacing={2}><FieldValue label="Fecha" value={formatDate(record.encounter.encounter_datetime)} /><FieldValue label="Profesional" value={record.author_name} /><FieldValue label="Tipo" value={TYPE_LABELS[record.encounter.encounter_type]} /><FieldValue label="Síntesis" value={record.encounter.clinical_summary} /><FieldValue label="Población" value={record.assessment ? POPULATION_LABELS[text(record.assessment.population_group)] : null} /><Divider /><Typography variant="subtitle1" fontWeight={800}>Diagnósticos PES</Typography>{record.diagnoses.map((row) => <Typography key={text(row.id)}>{text(row.generated_statement)}</Typography>)}{record.encounter.correction_reason && <Alert severity="info">Corrección: {record.encounter.correction_reason}</Alert>}{record.encounter.cancellation_reason && <Alert severity="warning">Cancelación: {record.encounter.cancellation_reason}</Alert>}</Stack></DialogContent><DialogActions><Button onClick={onClose}>Cerrar</Button></DialogActions></Dialog>
+  return <Dialog open onClose={onClose} fullWidth maxWidth="md"><DialogTitle>Evolución nutricional · {STATUS_LABELS[record.encounter.status]}</DialogTitle><DialogContent dividers><Stack spacing={2.5}>
+    <Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Fecha" value={formatDate(record.encounter.encounter_datetime)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={record.author_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Tipo" value={TYPE_LABELS[record.encounter.encounter_type]} /></Grid><Grid size={12}><FieldValue label="Motivo" value={record.encounter.reason_for_assessment} /></Grid><Grid size={12}><FieldValue label="Síntesis" value={record.encounter.clinical_summary} /></Grid></Grid>
+    {record.assessment && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Evaluación</Typography><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(record.assessment.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={record.assessment.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={record.assessment.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={record.assessment.digestive_findings} /></Grid></Grid></>}
+    {record.anthropometry.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Antropometría</Typography>{record.anthropometry.map((row) => <Typography key={text(row.id)}>{MEASUREMENT_LABELS[text(row.measurement_type)] || text(row.measurement_type)}: {text(row.value)} {text(row.unit)}</Typography>)}</>}
+    {record.screenings.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Tamizaje</Typography>{record.screenings.map((row) => <Typography key={text(row.id)}>{text(row.tool_code)} · puntaje {text(row.total_score)} · {text(row.classification)}</Typography>)}</>}
+    {record.requirements.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Requerimientos</Typography>{record.requirements.map((row) => <Typography key={text(row.id)}>{text(row.nutrient_code)}: {text(row.adopted_result)} {text(row.unit)} · {text(row.method)}</Typography>)}</>}
+    {record.diagnoses.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Diagnósticos PES</Typography>{record.diagnoses.map((row) => <Typography key={text(row.id)}>{text(row.generated_statement)}</Typography>)}</>}
+    {record.prescription && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Prescripción</Typography><FieldValue label="Régimen" value={record.prescription.regimen_type} /><FieldValue label="Vía" value={record.prescription.primary_route} /><FieldValue label="Restricciones" value={record.prescription.restrictions} /></>}
+    {record.intake.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Ingesta</Typography>{record.intake.map((row) => <Typography key={text(row.id)}>{formatDate(text(row.intake_date), false)} · {text(row.consumed_percentage)}% · {text(row.incomplete_reason)}</Typography>)}</>}
+    {record.labs.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Exámenes</Typography>{record.labs.map((row) => <Typography key={text(row.id)}>{text(row.test_name)}: {text(row.value)} {text(row.unit)}</Typography>)}</>}
+    {record.encounter.correction_reason && <Alert severity="info">Corrección: {record.encounter.correction_reason}</Alert>}{record.encounter.cancellation_reason && <Alert severity="warning">Cancelación: {record.encounter.cancellation_reason}</Alert>}
+  </Stack></DialogContent><DialogActions><Button onClick={onClose}>Cerrar</Button></DialogActions></Dialog>
 }
 
-function AssessmentTab({ admissionId }: { admissionId: string }) {
+function ModularEvolutionAction({ admissionId, csrfToken, historical, label, sections, onSaved }: {
+  admissionId: string; csrfToken: string; historical: boolean; label: string;
+  sections: number[]; onSaved: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  if (historical) return null
+  return <>
+    <Button variant="outlined" startIcon={<ClipboardPlus size={16} />} onClick={() => setOpen(true)}>{label}</Button>
+    <NutritionEditor
+      open={open}
+      record={null}
+      admissionId={admissionId}
+      csrfToken={csrfToken}
+      mode="specific"
+      presetSections={[0, ...sections, 9].filter((value, index, values) => values.indexOf(value) === index).sort((a, b) => a - b)}
+      onClose={() => setOpen(false)}
+      onSaved={() => { setOpen(false); onSaved() }}
+    />
+  </>
+}
+
+function AssessmentTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
   const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-assessments`, 0)
   const latest = data?.items?.[0]
-  return <SectionCard title="Evaluación nutricional" description="Última evaluación finalizada e historial, proyectados desde sus atenciones de origen.">{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando evaluaciones" rows={3} /> : !latest ? <EmptyState title="Sin evaluación finalizada" description="Finalice una atención nutricional para publicar esta proyección." /> : <Stack spacing={2}><Alert severity="success">Última evaluación finalizada · {formatDate(latest.observed_at)}</Alert><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(latest.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={latest.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={latest.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={latest.digestive_findings} /></Grid><Grid size={12}><FieldValue label="Objetivos" value={latest.objectives} /></Grid></Grid><Divider /><Typography variant="subtitle1" fontWeight={800}>Historial de evaluaciones ({data?.total})</Typography>{data?.items.map((row) => <Typography key={text(row.id)} variant="body2">{formatDate(row.observed_at)} · {POPULATION_LABELS[text(row.population_group)]} · Atención {text(row.encounter_id)}</Typography>)}</Stack>}</SectionCard>
+  return <SectionCard title="Evaluación nutricional" description="Última evaluación finalizada e historial, proyectados desde sus evoluciones de origen." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Actualizar evaluación" sections={[2, 4]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando evaluaciones" rows={3} /> : !latest ? <EmptyState title="Sin evaluación finalizada" description="Registre y finalice una evolución para publicar esta proyección." /> : <Stack spacing={2}><Alert severity="success">Última evaluación finalizada · {formatDate(latest.observed_at)}</Alert><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(latest.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={latest.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={latest.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={latest.digestive_findings} /></Grid><Grid size={12}><FieldValue label="Objetivos" value={latest.objectives} /></Grid></Grid><Divider /><Typography variant="subtitle1" fontWeight={800}>Historial de evaluaciones ({data?.total})</Typography>{data?.items.map((row) => <Typography key={text(row.id)} variant="body2">{formatDate(row.observed_at)} · {POPULATION_LABELS[text(row.population_group)]} · Evolución {text(row.encounter_id)}</Typography>)}</Stack>}</SectionCard>
 }
 
-function PrescriptionTab({ admissionId }: { admissionId: string }) {
+function PrescriptionTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
   const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-prescriptions`, 0)
   const latest = data?.items?.[0]
-  return <SectionCard title="Prescripción nutricional" description="La prescripción vigente procede de la última atención finalizada y será la fuente clínica futura para raciones.">{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando prescripciones" rows={3} /> : !latest ? <EmptyState title="Sin prescripción vigente" description="No hay una prescripción finalizada en este episodio." /> : <Stack spacing={2}><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Fecha efectiva" value={formatDate(latest.effective_from)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Vía" value={latest.primary_route} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado" value={latest.status} /></Grid><Grid size={12}><FieldValue label="Régimen general" value={latest.regimen_type} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Energía" value={latest.energy_target ? `${latest.energy_target} kcal/día` : null} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Proteínas" value={latest.protein_target ? `${latest.protein_target} g/día` : null} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Líquidos" value={latest.fluid_target ? `${latest.fluid_target} mL/día` : null} /></Grid><Grid size={12}><FieldValue label="Restricciones" value={latest.restrictions} /></Grid></Grid><Alert severity="info">Los borradores nunca alimentan raciones y Alimentación no accede a esta ficha.</Alert></Stack>}</SectionCard>
+  return <SectionCard title="Prescripción nutricional" description="La prescripción vigente procede de la última evolución finalizada que modificó este módulo." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Modificar prescripción" sections={[8]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando prescripciones" rows={3} /> : !latest ? <EmptyState title="Sin prescripción vigente" description="No hay una prescripción finalizada en este episodio." /> : <Stack spacing={2}><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Fecha efectiva" value={formatDate(latest.effective_from)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Vía" value={latest.primary_route} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado" value={latest.status} /></Grid><Grid size={12}><FieldValue label="Régimen general" value={latest.regimen_type} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Energía" value={latest.energy_target ? `${latest.energy_target} kcal/día` : null} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Proteínas" value={latest.protein_target ? `${latest.protein_target} g/día` : null} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Líquidos" value={latest.fluid_target ? `${latest.fluid_target} mL/día` : null} /></Grid><Grid size={12}><FieldValue label="Restricciones" value={latest.restrictions} /></Grid></Grid><Alert severity="info">Los borradores nunca alimentan raciones y Alimentación no accede a esta ficha.</Alert></Stack>}</SectionCard>
 }
 
-function IntakeTab({ admissionId }: { admissionId: string }) {
+function IntakeTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
   const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-intake`, 0)
-  return <Stack spacing={2}><Alert severity="info">En esta fase sólo está disponible el control clínico de ingesta. Minutas, raciones y producción de cocina están pendientes.</Alert><SectionCard title="Control de ingesta">{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando ingesta" rows={3} /> : !data?.items.length ? <EmptyState title="Sin controles de ingesta" description="Registre ingesta dentro de una atención nutricional." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Fecha</TableCell><TableCell>Tiempo</TableCell><TableCell>Consumido</TableCell><TableCell>Motivo incompleto</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(text(row.intake_date), false)}</TableCell><TableCell>{text(row.meal_time)}</TableCell><TableCell>{text(row.consumed_percentage)}%</TableCell><TableCell>{text(row.incomplete_reason)}</TableCell><TableCell>{SOURCE_LABELS[text(row.source)] || text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard></Stack>
+  return <Stack spacing={2}><Alert severity="info">En esta fase sólo está disponible el control clínico de ingesta. Minutas, raciones y producción de cocina están pendientes.</Alert><SectionCard title="Control de ingesta" actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Registrar ingesta" sections={[5]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando ingesta" rows={3} /> : !data?.items.length ? <EmptyState title="Sin controles de ingesta" description="Registre ingesta mediante una evolución específica." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Fecha</TableCell><TableCell>Tiempo</TableCell><TableCell>Consumido</TableCell><TableCell>Motivo incompleto</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(text(row.intake_date), false)}</TableCell><TableCell>{text(row.meal_time)}</TableCell><TableCell>{text(row.consumed_percentage)}%</TableCell><TableCell>{text(row.incomplete_reason)}</TableCell><TableCell>{SOURCE_LABELS[text(row.source)] || text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard></Stack>
 }
 
-function LabsTab({ admissionId }: { admissionId: string }) {
+function LabsTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
   const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-labs`, 0)
-  return <SectionCard title="Exámenes relevantes" description="Resultados transcritos manualmente; NutriWard no interpreta valores críticos ni reemplaza al laboratorio.">{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando exámenes" rows={3} /> : !data?.items.length ? <EmptyState title="Sin exámenes transcritos" description="Registre exámenes relevantes dentro de una atención nutricional." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Muestra</TableCell><TableCell>Examen</TableCell><TableCell>Resultado</TableCell><TableCell>Referencia</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(row.sampled_at)}</TableCell><TableCell>{text(row.test_name)}</TableCell><TableCell>{text(row.value)} {text(row.unit) === '—' ? '' : text(row.unit)}</TableCell><TableCell>{text(row.reference_range)}</TableCell><TableCell>{row.source === 'trakcare_manual' ? <Chip icon={<AlertTriangle size={14} />} size="small" label="Dato transcrito manualmente desde TrakCare" /> : text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard>
+  return <SectionCard title="Exámenes relevantes" description="Resultados transcritos manualmente; NutriWard no interpreta valores críticos ni reemplaza al laboratorio." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Agregar examen" sections={[5]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando exámenes" rows={3} /> : !data?.items.length ? <EmptyState title="Sin exámenes transcritos" description="Registre exámenes relevantes mediante una evolución específica." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Muestra</TableCell><TableCell>Examen</TableCell><TableCell>Resultado</TableCell><TableCell>Referencia</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(row.sampled_at)}</TableCell><TableCell>{text(row.test_name)}</TableCell><TableCell>{text(row.value)} {text(row.unit) === '—' ? '' : text(row.unit)}</TableCell><TableCell>{text(row.reference_range)}</TableCell><TableCell>{row.source === 'trakcare_manual' ? <Chip icon={<AlertTriangle size={14} />} size="small" label="Dato transcrito manualmente desde TrakCare" /> : text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard>
 }
 
 export function NutritionSummaryCard({ admissionId }: { admissionId: string }) {
   const { data, loading, error, reload } = useClinicalData<NutritionLatest>(`/admissions/${admissionId}/nutrition-latest`, 0)
-  return <SectionCard title="Resumen nutricional clínico" description="Visible sólo para nutricionista y jefatura.">{loading ? <LoadingState label="Cargando resumen nutricional" rows={2} /> : error ? <ErrorState message={error} onRetry={() => void reload()} /> : !data?.latest_encounter ? <EmptyState title="Sin atención finalizada" description="Los borradores no se publican como información clínica vigente." /> : <Stack spacing={2}>{data.active_alerts.map((alert) => <Alert severity={alert.severity === 'critical' ? 'error' : 'warning'} key={text(alert.id)}>{text(alert.description)} · Fuente: {text(alert.source)} · Verificación: {text(alert.verification_status)}</Alert>)}<Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Última atención" value={formatDate(data.latest_encounter.finalized_at)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={data.latest_encounter.professional_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado nutricional" value={data.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Diagnósticos PES activos" value={data.active_diagnoses.map((row) => text(row.generated_statement)).join(' · ')} /></Grid><Grid size={12}><FieldValue label="Reevaluación sugerida" value={formatDate(data.suggested_reassessment_at)} /></Grid></Grid></Stack>}</SectionCard>
+  return <SectionCard title="Resumen nutricional clínico" description="Visible sólo para nutricionista y jefatura.">{loading ? <LoadingState label="Cargando resumen nutricional" rows={2} /> : error ? <ErrorState message={error} onRetry={() => void reload()} /> : !data?.latest_encounter ? <EmptyState title="Sin evolución finalizada" description="Los borradores no se publican como información clínica vigente." /> : <Stack spacing={2}>{data.active_alerts.map((alert) => <Alert severity={alert.severity === 'critical' ? 'error' : 'warning'} key={text(alert.id)}>{text(alert.description)} · Fuente: {text(alert.source)} · Verificación: {text(alert.verification_status)}</Alert>)}<Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Última evolución" value={formatDate(data.latest_encounter.finalized_at)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={data.latest_encounter.professional_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado nutricional" value={data.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Diagnósticos PES activos" value={data.active_diagnoses.map((row) => text(row.generated_statement)).join(' · ')} /></Grid><Grid size={12}><FieldValue label="Reevaluación sugerida" value={formatDate(data.suggested_reassessment_at)} /></Grid></Grid></Stack>}</SectionCard>
 }
 
 export function NutritionClinicalTab({ tab, admissionId, historical, csrfToken, onChanged }: { tab: ClinicalTab, admissionId: string, historical: boolean, csrfToken: string, onChanged: () => void }) {
   if (tab === 'care') return <CareTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
-  if (tab === 'assessment') return <AssessmentTab admissionId={admissionId} />
-  if (tab === 'prescription') return <PrescriptionTab admissionId={admissionId} />
-  if (tab === 'intake') return <IntakeTab admissionId={admissionId} />
-  return <LabsTab admissionId={admissionId} />
+  if (tab === 'assessment') return <AssessmentTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  if (tab === 'prescription') return <PrescriptionTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  if (tab === 'intake') return <IntakeTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  return <LabsTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
 }

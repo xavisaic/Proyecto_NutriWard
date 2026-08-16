@@ -367,6 +367,7 @@ export interface NutritionEncounterSummary {
   finalized_at: string | null
   corrected_encounter_id: string | null
   version: number
+  documented_sections: string[]
 }
 
 export interface NutritionEncounterList {

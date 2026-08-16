@@ -1,4 +1,4 @@
-# Backend (Fase 9.2)
+# Backend (Fase 9.3)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -27,7 +27,13 @@ solo lectura: Alimentación puede consultar sustancia, tipo, criticidad y manife
 alimentarias activas, sin fuentes, notas, actores ni alergias farmacológicas. La cabeza
 Alembic es `20260815_0012`; el modelo se documenta en
 `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md` y
-`docs/planning/FASE-9.2-ALERGIAS-INTOLERANCIAS.md`.
+`docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md`.
+
+La evaluación inicial exige población, tamizaje y PES antes de finalizar. Seguimientos,
+reevaluaciones y acciones específicas requieren contexto y síntesis, pero pueden publicar
+un subconjunto de módulos. `nutrition-latest` resuelve cada dato vigente desde la evolución
+finalizada más reciente que realmente lo modificó, evitando que un control parcial oculte
+una prescripción, un PES o un tamizaje previo.
 
 ## Ejecución local
 

@@ -19,7 +19,8 @@ describe('Ficha nutricional clínica', () => {
       return response(emptyList)
     })
     render(<NutritionClinicalTab tab="care" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Nueva atención nutricional' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar evolución' }))
+    await userEvent.click(screen.getByRole('button', { name: /Evaluación nutricional inicial/ }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '1' }))
     await userEvent.click(screen.getAllByRole('combobox')[2])
@@ -37,8 +38,42 @@ describe('Ficha nutricional clínica', () => {
   it('impide edición en episodio histórico y muestra sólo lectura', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
     render(<NutritionClinicalTab tab="care" admissionId="adm-old" historical csrfToken="csrf" onChanged={vi.fn()} />)
-    expect(await screen.findByText('Episodio histórico · Solo lectura. Las atenciones finalizadas permanecen disponibles.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Nueva atención nutricional' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Episodio histórico · Solo lectura. Las evoluciones finalizadas permanecen disponibles.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar evolución' })).not.toBeInTheDocument()
+  })
+
+  it('crea un seguimiento rápido sólo con los módulos seleccionados', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') return response({
+        encounter: { id: 'enc-follow', status: 'draft', version: 1 },
+        assessment: null, context_items: [], anthropometry: [], screenings: [], requirements: [],
+        diagnoses: [], prescription: null, monitoring: [], intake: [], labs: [], alerts: [],
+      }, 201)
+      return response(emptyList)
+    })
+    render(<NutritionClinicalTab tab="care" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar evolución' }))
+    await userEvent.click(screen.getByRole('button', { name: /Seguimiento rápido/ }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Motivo de evaluación' }), 'Control diario')
+    await userEvent.click(screen.getByRole('button', { name: '10' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Síntesis clínica' }), 'Paciente tolera parcialmente la alimentación.')
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    const payload = JSON.parse(String(createCall?.[1]?.body))
+    expect(payload.encounter_type).toBe('follow_up')
+    expect(payload.screenings).toEqual([])
+    expect(payload.diagnoses).toEqual([])
+    expect(payload.prescription).toBeNull()
+  })
+
+  it('permite iniciar una modificación de prescripción desde su propio módulo', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
+    render(<NutritionClinicalTab tab="prescription" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Modificar prescripción' }))
+    expect(screen.getByRole('heading', { name: 'Acción específica' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '9' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '3' })).not.toBeInTheDocument()
   })
 
   it('proyecta resumen finalizado, alertas y PES sin exponer auditoría', async () => {
