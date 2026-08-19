@@ -1,4 +1,4 @@
-# Frontend (Fase 9.5)
+# Frontend (Fase 9.6)
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
@@ -17,6 +17,12 @@ El módulo Antropometría incorpora bloques opcionales para circunferencias, din
 cuatro pliegues Durnin–Womersley y bioimpedancia. La interfaz exige series completas y la
 identificación del dispositivo cuando el protocolo lo requiere; al consultar la evolución
 muestra tanto los datos originales como los resultados calculados por el backend.
+
+NRS-2002 funciona como formulario progresivo. Las cuatro preguntas iniciales habilitan el
+tamizaje final sólo cuando corresponde; pérdida de peso, ingesta e IMC producen un componente
+nutricional visible, la gravedad se confirma mediante tarjetas orientativas y la edad se
+calcula desde la ficha o se confirma cuando es estimada. El total en pantalla es provisional:
+la API lo recalcula antes de guardar.
 
 La pestaña **Diagnósticos y antecedentes** permite pegar listas, convertirlas en hasta 100
 filas revisables, asignar fuente y estados comunes, ajustar CIE-10/tipo/presencia al ingreso

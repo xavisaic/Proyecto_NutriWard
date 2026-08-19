@@ -233,8 +233,18 @@ interface EditorState {
   height_value: string
   screening_tool: string
   nrs_nutrition: string
+  nrs_initial_bmi: string
+  nrs_initial_weight_loss: string
+  nrs_initial_intake: string
+  nrs_initial_severe_illness: string
+  nrs_weight_loss_category: string
+  nrs_intake_category: string
+  nrs_bmi: string
+  nrs_general_deterioration: string
   nrs_disease: string
   nrs_age: string
+  nrs_age_source: string
+  nrs_age_confirmed: string
   strong_subjective: string
   strong_disease: string
   strong_intake: string
@@ -267,7 +277,11 @@ const EMPTY_EDITOR: EditorState = {
   appetite: '', clinical_findings: '', digestive_findings: '', nutritional_status: '', objectives: '',
   monitoring_plan: '', pending_actions: '', suggested_reassessment_at: '', weight_value: '',
   weight_type: 'current_weight_measured', height_value: '', screening_tool: 'nrs_2002',
-  nrs_nutrition: '0', nrs_disease: '0', nrs_age: 'false', strong_subjective: 'false',
+  nrs_nutrition: '0', nrs_initial_bmi: '', nrs_initial_weight_loss: '', nrs_initial_intake: '',
+  nrs_initial_severe_illness: '', nrs_weight_loss_category: '', nrs_intake_category: '',
+  nrs_bmi: '', nrs_general_deterioration: '', nrs_disease: '', nrs_age: '', nrs_age_source: 'manual',
+  nrs_age_confirmed: 'false',
+  strong_subjective: 'false',
   strong_disease: 'false', strong_intake: 'false', strong_weight: 'false',
   no_tool_reason: 'Protocolo institucional aún no confirmado.', requirement_method: 'factorial',
   basal_result: '', activity_factor: '1', stress_factor: '1', energy_result: '', pes_problem: '',
@@ -308,8 +322,18 @@ function fromEncounter(record: NutritionEncounterRead): EditorState {
     weight_value: firstWeight ? text(firstWeight.value) : '', weight_type: firstWeight ? text(firstWeight.measurement_type) : 'current_weight_measured',
     height_value: height ? text(height.value) : '', screening_tool: screening ? text(screening.tool_code) : SCREENING_DEFAULTS[text(assessment.population_group)] ?? 'nrs_2002',
     nrs_nutrition: text(answers.nutritional_status_score) === '—' ? '0' : text(answers.nutritional_status_score),
-    nrs_disease: text(answers.disease_severity_score) === '—' ? '0' : text(answers.disease_severity_score),
-    nrs_age: text(answers.age_70_or_more) === '—' ? 'false' : text(answers.age_70_or_more),
+    nrs_initial_bmi: text(answers.initial_bmi_below_20_5) === '—' ? '' : text(answers.initial_bmi_below_20_5),
+    nrs_initial_weight_loss: text(answers.initial_weight_loss_3_months) === '—' ? '' : text(answers.initial_weight_loss_3_months),
+    nrs_initial_intake: text(answers.initial_reduced_intake_last_week) === '—' ? '' : text(answers.initial_reduced_intake_last_week),
+    nrs_initial_severe_illness: text(answers.initial_severely_ill) === '—' ? '' : text(answers.initial_severely_ill),
+    nrs_weight_loss_category: text(answers.weight_loss_category) === '—' ? '' : text(answers.weight_loss_category),
+    nrs_intake_category: text(answers.intake_category) === '—' ? '' : text(answers.intake_category),
+    nrs_bmi: text(answers.current_bmi) === '—' ? '' : text(answers.current_bmi),
+    nrs_general_deterioration: text(answers.impaired_general_condition) === '—' ? '' : text(answers.impaired_general_condition),
+    nrs_disease: text(answers.disease_severity_score) === '—' ? '' : text(answers.disease_severity_score),
+    nrs_age: text(answers.age_70_or_more) === '—' ? '' : text(answers.age_70_or_more),
+    nrs_age_source: text(answers.age_source) === '—' ? 'manual' : text(answers.age_source),
+    nrs_age_confirmed: text(answers.age_70_or_more) === '—' ? 'false' : 'true',
     strong_subjective: text(answers.subjective_clinical_assessment) === '—' ? 'false' : text(answers.subjective_clinical_assessment),
     strong_disease: text(answers.high_risk_disease) === '—' ? 'false' : text(answers.high_risk_disease),
     strong_intake: text(answers.nutritional_intake_or_losses) === '—' ? 'false' : text(answers.nutritional_intake_or_losses),
@@ -346,6 +370,84 @@ function sectionsFromEncounter(record: NutritionEncounterRead): number[] {
 
 function numberOrUndefined(value: string) { return value.trim() ? Number(value) : undefined }
 function localIso(value: string) { return value ? new Date(value).toISOString() : undefined }
+
+const NRS_WEIGHT_SCORES: Record<string, number> = {
+  none_or_below_threshold: 0, over_5_3_months: 1, over_5_2_months: 2,
+  over_5_1_month_or_over_15_3_months: 3,
+}
+const NRS_INTAKE_SCORES: Record<string, number> = {
+  over_75: 0, '50_75': 1, '25_50': 2, below_25: 3,
+}
+
+function calculatedBmi(editor: EditorState): number | null {
+  const weight = Number(editor.weight_value)
+  const height = Number(editor.height_value) / 100
+  if (!weight || !height) return null
+  return Math.round((weight / (height * height)) * 10) / 10
+}
+
+function nrsBmi(editor: EditorState): string {
+  const calculated = calculatedBmi(editor)
+  return calculated === null ? editor.nrs_bmi : String(calculated)
+}
+
+function nrsInitialAnswers(editor: EditorState) {
+  const bmi = nrsBmi(editor)
+  return {
+    initial_bmi_below_20_5: bmi ? String(Number(bmi) < 20.5) : editor.nrs_initial_bmi,
+    initial_weight_loss_3_months: editor.nrs_initial_weight_loss,
+    initial_reduced_intake_last_week: editor.nrs_initial_intake,
+    initial_severely_ill: editor.nrs_initial_severe_illness,
+  }
+}
+
+function nrsPreview(editor: EditorState) {
+  const initial = nrsInitialAnswers(editor)
+  const initialComplete = Object.values(initial).every((value) => value !== '')
+  const needsFinal = initialComplete && Object.values(initial).some((value) => value === 'true')
+  const bmi = nrsBmi(editor)
+  let bmiScore = 0
+  if (bmi && editor.nrs_general_deterioration === 'true') {
+    if (Number(bmi) < 18.5) bmiScore = 3
+    else if (Number(bmi) < 20.5) bmiScore = 2
+  }
+  const weightScore = NRS_WEIGHT_SCORES[editor.nrs_weight_loss_category]
+  const intakeScore = NRS_INTAKE_SCORES[editor.nrs_intake_category]
+  const nutritionalScore = Math.max(weightScore ?? 0, intakeScore ?? 0, bmiScore)
+  const finalComplete = Boolean(
+    editor.nrs_weight_loss_category && editor.nrs_intake_category
+    && editor.nrs_general_deterioration !== '' && editor.nrs_disease !== ''
+    && editor.nrs_age !== '' && editor.nrs_age_confirmed === 'true'
+    && (initial.initial_bmi_below_20_5 !== 'true' || bmi),
+  )
+  const total = needsFinal && finalComplete
+    ? nutritionalScore + Number(editor.nrs_disease) + (editor.nrs_age === 'true' ? 1 : 0)
+    : initialComplete && !needsFinal ? 0 : null
+  return { initial, initialComplete, needsFinal, bmi, bmiScore, weightScore, intakeScore, nutritionalScore, finalComplete, total }
+}
+
+function buildNrsAnswers(editor: EditorState) {
+  const preview = nrsPreview(editor)
+  const answers = [{ answer_code: 'screening_flow_version', answer_value: 'v2' }]
+  for (const [answer_code, answer_value] of Object.entries(preview.initial)) {
+    if (answer_value !== '') answers.push({ answer_code, answer_value })
+  }
+  if (preview.needsFinal) {
+    const finalAnswers = [
+      ['weight_loss_category', editor.nrs_weight_loss_category],
+      ['intake_category', editor.nrs_intake_category],
+      ['current_bmi', preview.bmi],
+      ['impaired_general_condition', editor.nrs_general_deterioration],
+      ['disease_severity_score', editor.nrs_disease],
+      ['age_70_or_more', editor.nrs_age],
+      ['age_source', editor.nrs_age_source],
+    ]
+    for (const [answer_code, answer_value] of finalAnswers) {
+      if (answer_value !== '') answers.push({ answer_code, answer_value })
+    }
+  }
+  return answers
+}
 
 function optionalBoolean(value: string) {
   if (value === '') return undefined
@@ -432,11 +534,7 @@ function buildPayload(editor: EditorState, selectedSections = ALL_SECTION_INDEXE
   const anthropometry = []
   if (includes(2) && editor.weight_value) anthropometry.push({ measurement_type: editor.weight_type, value: Number(editor.weight_value), unit: 'kg', measured_at: now, reliability: 'unknown', value_nature: editor.weight_type === 'current_weight_reported' ? 'reported' : 'measured' })
   if (includes(2) && editor.height_value) anthropometry.push({ measurement_type: 'standing_height', value: Number(editor.height_value), unit: 'cm', measured_at: now, reliability: 'unknown', value_nature: 'measured' })
-  const answers = includes(3) && editor.screening_tool === 'nrs_2002' ? [
-    { answer_code: 'nutritional_status_score', answer_value: editor.nrs_nutrition },
-    { answer_code: 'disease_severity_score', answer_value: editor.nrs_disease },
-    { answer_code: 'age_70_or_more', answer_value: editor.nrs_age },
-  ] : includes(3) && editor.screening_tool === 'strongkids' ? [
+  const answers = includes(3) && editor.screening_tool === 'nrs_2002' ? buildNrsAnswers(editor) : includes(3) && editor.screening_tool === 'strongkids' ? [
     { answer_code: 'subjective_clinical_assessment', answer_value: editor.strong_subjective },
     { answer_code: 'high_risk_disease', answer_value: editor.strong_disease },
     { answer_code: 'nutritional_intake_or_losses', answer_value: editor.strong_intake },
@@ -548,9 +646,103 @@ function AdvancedAnthropometryEditor({ state, setValue }: {
   </Stack>
 }
 
-function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSections, onClose, onSaved }: {
+function ageFromBirthDate(dateOfBirth: string, reference = new Date()): number {
+  const [year, month, day] = dateOfBirth.split('-').map(Number)
+  const birthdayPassed = (reference.getUTCMonth() + 1) > month
+    || ((reference.getUTCMonth() + 1) === month && reference.getUTCDate() >= day)
+  return reference.getUTCFullYear() - year - (birthdayPassed ? 0 : 1)
+}
+
+function YesNoQuestion({ label, value, onChange }: {
+  label: string; value: string; onChange: (value: string) => void
+}) {
+  return <Box sx={{ border: 1, borderColor: value === '' ? 'divider' : 'primary.light', borderRadius: 2, p: 1.5 }}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1}>
+      <Typography fontWeight={650}>{label}</Typography>
+      <Stack direction="row" gap={1}>
+        <Button aria-label={`No · ${label}`} size="small" variant={value === 'false' ? 'contained' : 'outlined'} color={value === 'false' ? 'success' : 'inherit'} onClick={() => onChange('false')}>No</Button>
+        <Button aria-label={`Sí · ${label}`} size="small" variant={value === 'true' ? 'contained' : 'outlined'} color={value === 'true' ? 'warning' : 'inherit'} onClick={() => onChange('true')}>Sí</Button>
+      </Stack>
+    </Stack>
+  </Box>
+}
+
+function NrsScreeningForm({ editor, set, legacy }: {
+  editor: EditorState; set: (name: keyof EditorState, value: string) => void; legacy: boolean
+}) {
+  const preview = nrsPreview(editor)
+  const calculated = calculatedBmi(editor)
+  const diseaseLevels = [
+    ['0', 'Requerimientos normales', 'Sin aumento relevante de requerimientos.'],
+    ['1', 'Gravedad leve', 'Enfermedad crónica reagudizada, fractura de cadera o diabetes con complicaciones.'],
+    ['2', 'Gravedad moderada', 'Cirugía abdominal mayor, neumonía grave, ACV o neoplasia hematológica.'],
+    ['3', 'Gravedad grave', 'Trauma craneoencefálico, trasplante de médula o paciente crítico de alta gravedad.'],
+  ]
+  return <Stack spacing={2.5}>
+    <Alert severity="info">Responda el flujo en orden. El puntaje mostrado es provisional; el backend lo recalcula y conserva la versión del algoritmo al guardar.</Alert>
+    {legacy && <Alert severity="warning">Este borrador proviene del formulario NRS-2002 anterior. Complete los criterios guiados para actualizarlo sin inventar antecedentes.</Alert>}
+
+    <Box><Typography variant="subtitle1" fontWeight={800}>Paso 1 · Tamizaje inicial</Typography><Typography variant="body2" color="text.secondary">Si todas las respuestas son negativas, finaliza aquí y se recomienda repetir semanalmente.</Typography></Box>
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 12, md: 5 }}><TextField
+        fullWidth type="number" label="IMC utilizado" value={preview.bmi}
+        disabled={calculated !== null}
+        onChange={(e) => set('nrs_bmi', e.target.value)}
+        inputProps={{ min: 1, step: '0.1' }}
+        helperText={calculated !== null ? 'Calculado desde el peso y la talla de esta evolución.' : 'Ingrese el IMC si no hay peso y talla disponibles.'}
+      /></Grid>
+      <Grid size={{ xs: 12, md: 7 }}>{preview.bmi ? <Box sx={{ border: 1, borderColor: 'primary.light', borderRadius: 2, p: 1.5 }}><Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}><Typography fontWeight={650}>¿IMC menor de 20,5 kg/m²?</Typography><Chip color={preview.initial.initial_bmi_below_20_5 === 'true' ? 'warning' : 'success'} label={`${preview.initial.initial_bmi_below_20_5 === 'true' ? 'Sí' : 'No'} · calculado`} /></Stack></Box> : <YesNoQuestion label="¿IMC menor de 20,5 kg/m²?" value={editor.nrs_initial_bmi} onChange={(next) => set('nrs_initial_bmi', next)} />}</Grid>
+    </Grid>
+    <YesNoQuestion label="¿Ha perdido peso durante los últimos 3 meses?" value={editor.nrs_initial_weight_loss} onChange={(next) => set('nrs_initial_weight_loss', next)} />
+    <YesNoQuestion label="¿Redujo la ingesta durante la última semana?" value={editor.nrs_initial_intake} onChange={(next) => set('nrs_initial_intake', next)} />
+    <YesNoQuestion label="¿Está gravemente enfermo o en tratamiento intensivo?" value={editor.nrs_initial_severe_illness} onChange={(next) => set('nrs_initial_severe_illness', next)} />
+
+    {!preview.initialComplete && <Alert severity="warning">Complete las cuatro respuestas iniciales. Puede guardar el avance como borrador.</Alert>}
+    {preview.initialComplete && !preview.needsFinal && <Alert severity="success"><strong>Tamizaje inicial negativo · NRS-2002: 0.</strong> Repetir semanalmente durante la hospitalización.</Alert>}
+
+    {preview.needsFinal && <>
+      <Divider /><Box><Typography variant="subtitle1" fontWeight={800}>Paso 2 · Deterioro nutricional</Typography><Typography variant="body2" color="text.secondary">NutriWard compara los criterios y utiliza el puntaje mayor; no los suma entre sí.</Typography></Box>
+      <FormControl fullWidth><InputLabel id="nrs-weight-loss-label">Pérdida de peso</InputLabel><Select id="nrs-weight-loss" labelId="nrs-weight-loss-label" label="Pérdida de peso" value={editor.nrs_weight_loss_category} onChange={(e) => set('nrs_weight_loss_category', e.target.value)}>
+        <MenuItem value="none_or_below_threshold">0 · Sin pérdida o bajo los umbrales</MenuItem>
+        <MenuItem value="over_5_3_months">1 · Más de 5% en 3 meses</MenuItem>
+        <MenuItem value="over_5_2_months">2 · Más de 5% en 2 meses</MenuItem>
+        <MenuItem value="over_5_1_month_or_over_15_3_months">3 · Más de 5% en 1 mes o más de 15% en 3 meses</MenuItem>
+      </Select></FormControl>
+      <FormControl fullWidth><InputLabel id="nrs-intake-label">Ingesta respecto del requerimiento</InputLabel><Select id="nrs-intake" labelId="nrs-intake-label" label="Ingesta respecto del requerimiento" value={editor.nrs_intake_category} onChange={(e) => set('nrs_intake_category', e.target.value)}>
+        <MenuItem value="over_75">0 · Más de 75%</MenuItem><MenuItem value="50_75">1 · 50–75%</MenuItem><MenuItem value="25_50">2 · 25–50%</MenuItem><MenuItem value="below_25">3 · Menos de 25%</MenuItem>
+      </Select></FormControl>
+      <YesNoQuestion label="¿Existe deterioro del estado general asociado al IMC?" value={editor.nrs_general_deterioration} onChange={(next) => set('nrs_general_deterioration', next)} />
+      {preview.initial.initial_bmi_below_20_5 === 'true' && !preview.bmi && <Alert severity="warning">Ingrese el IMC utilizado para distinguir el criterio 18,5–20,5 del criterio menor de 18,5.</Alert>}
+      <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}><Chip label={`Pérdida: ${preview.weightScore ?? '—'}`} /><Chip label={`Ingesta: ${preview.intakeScore ?? '—'}`} /><Chip label={`IMC: ${preview.bmiScore}`} /><Chip color="primary" label={`Componente nutricional: ${preview.nutritionalScore}`} /></Stack>
+
+      <Divider /><Box><Typography variant="subtitle1" fontWeight={800}>Paso 3 · Gravedad de la enfermedad</Typography><Typography variant="body2" color="text.secondary">Seleccione según el estrés metabólico y aumento de requerimientos. No se infiere automáticamente desde el diagnóstico.</Typography></Box>
+      <Grid container spacing={1.5}>{diseaseLevels.map(([score, title, description]) => <Grid key={score} size={{ xs: 12, md: 6 }}><Button
+        fullWidth variant={editor.nrs_disease === score ? 'contained' : 'outlined'}
+        onClick={() => set('nrs_disease', score)}
+        sx={{ height: '100%', alignItems: 'flex-start', flexDirection: 'column', textAlign: 'left', py: 1.5 }}
+      ><Typography fontWeight={800}>{score} · {title}</Typography><Typography variant="body2" sx={{ textTransform: 'none' }}>{description}</Typography></Button></Grid>)}</Grid>
+      <Alert severity="warning">No asigne 3 puntos sólo por estar hospitalizado. La categoría representa el aumento de requerimientos y la gravedad metabólica actual.</Alert>
+
+      <Divider /><Typography variant="subtitle1" fontWeight={800}>Paso 4 · Edad</Typography>
+      {editor.nrs_age_source === 'patient_record_exact' ? <Alert severity="info">Edad calculada automáticamente desde la fecha de nacimiento: <strong>{editor.nrs_age === 'true' ? '70 años o más · +1 punto' : 'menor de 70 años · 0 puntos'}</strong>.</Alert> : <FormControl fullWidth><InputLabel id="nrs-age-label">Confirmación de edad</InputLabel><Select id="nrs-age" labelId="nrs-age-label" label="Confirmación de edad" value={editor.nrs_age_confirmed === 'true' ? editor.nrs_age : ''} onChange={(e) => { set('nrs_age', e.target.value); set('nrs_age_confirmed', 'true'); set('nrs_age_source', editor.nrs_age_source === 'patient_record_estimated' ? 'patient_record_estimated_confirmed' : 'manual') }}>
+        <MenuItem value="false">Menor de 70 años · 0 puntos</MenuItem><MenuItem value="true">70 años o más · +1 punto</MenuItem>
+      </Select><FormHelperText>{editor.nrs_age_source.startsWith('patient_record_estimated') ? 'La edad del registro es estimada y requiere confirmación profesional.' : 'No hay una fecha de nacimiento exacta disponible.'}</FormHelperText></FormControl>}
+
+      <Box sx={{ border: 2, borderColor: preview.total !== null && preview.total >= 3 ? 'warning.main' : 'success.main', borderRadius: 2, p: 2 }}><Grid container spacing={1}>
+        <Grid size={{ xs: 6, md: 3 }}><FieldValue label="Deterioro nutricional" value={preview.finalComplete ? preview.nutritionalScore : '—'} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><FieldValue label="Gravedad" value={editor.nrs_disease || '—'} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><FieldValue label="Edad" value={editor.nrs_age_confirmed === 'true' ? (editor.nrs_age === 'true' ? 1 : 0) : '—'} /></Grid>
+        <Grid size={{ xs: 6, md: 3 }}><FieldValue label="Total NRS-2002" value={preview.total ?? 'Incompleto'} /></Grid>
+        <Grid size={12}><Alert severity={preview.total !== null && preview.total >= 3 ? 'warning' : preview.total === null ? 'info' : 'success'}>{preview.total === null ? 'Complete los pasos para obtener el resultado.' : preview.total >= 3 ? 'Con riesgo nutricional: efectuar valoración completa y definir un plan según estabilidad clínica.' : 'Sin riesgo nutricional según NRS-2002: repetir semanalmente.'}</Alert></Grid>
+      </Grid></Box>
+    </>}
+  </Stack>
+}
+
+function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSections, patientDateOfBirth, patientAgeIsEstimated = false, onClose, onSaved }: {
   open: boolean, record: NutritionEncounterRead | null, admissionId: string, csrfToken: string,
   mode: EvolutionMode, presetSections?: number[],
+  patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean,
   onClose: () => void, onSaved: () => void,
 }) {
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR)
@@ -569,12 +761,18 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
         : [...(presetSections ?? MODE_SECTIONS[mode])]
       const encounterType = mode === 'initial' ? 'initial_assessment'
         : mode === 'follow_up' ? 'follow_up' : 'other'
-      setEditor(record ? fromEncounter(record) : { ...EMPTY_EDITOR, encounter_type: encounterType })
+      const nextEditor = record ? fromEncounter(record) : { ...EMPTY_EDITOR, encounter_type: encounterType }
+      if (!record && patientDateOfBirth) {
+        nextEditor.nrs_age = String(ageFromBirthDate(patientDateOfBirth) >= 70)
+        nextEditor.nrs_age_source = patientAgeIsEstimated ? 'patient_record_estimated' : 'patient_record_exact'
+        nextEditor.nrs_age_confirmed = patientAgeIsEstimated ? 'false' : 'true'
+      }
+      setEditor(nextEditor)
       setAdvanced(record ? advancedFromEncounter(record) : {})
       setSelectedSections(sections)
       setDirty(false); setActiveSection(sections[0] ?? 0); setError(null); setSectionErrors([])
     }
-  }, [mode, open, presetSections, record])
+  }, [mode, open, patientAgeIsEstimated, patientDateOfBirth, presetSections, record])
   useEffect(() => {
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -593,9 +791,14 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
     onClose()
   }
   async function save(finalize = false) {
-    if (finalize && !window.confirm('¿Confirma registrar y finalizar esta evolución? Luego será inmutable y cualquier cambio requerirá una corrección.')) return
+    if (finalize && selectedSections.includes(3) && editor.screening_tool === 'nrs_2002' && nrsPreview(editor).total === null) {
+      setSectionErrors(['Tamizaje NRS-2002: complete todas las respuestas antes de finalizar.'])
+      setActiveSection(3)
+      return
+    }
     const advancedErrors = selectedSections.includes(2) ? validateAdvancedMeasurements(advanced) : []
     if (advancedErrors.length) { setSectionErrors(advancedErrors); setActiveSection(2); return }
+    if (finalize && !window.confirm('¿Confirma registrar y finalizar esta evolución? Luego será inmutable y cualquier cambio requerirá una corrección.')) return
     setSaving(true); setError(null); setSectionErrors([])
     try {
       let saved: NutritionEncounterRead
@@ -692,7 +895,7 @@ function NutritionEditor({ open, record, admissionId, csrfToken, mode, presetSec
         </Stack>}
         {activeSection === 3 && <Stack spacing={2}>
           <FormControl fullWidth><InputLabel>Herramienta de tamizaje</InputLabel><Select label="Herramienta de tamizaje" value={editor.screening_tool} onChange={(e) => set('screening_tool', e.target.value)}><MenuItem value="nrs_2002">NRS-2002 · ESPEN</MenuItem><MenuItem value="strongkids">STRONGkids</MenuItem><MenuItem value="none">Sin herramienta definida</MenuItem></Select><FormHelperText>Predeterminada para {POPULATION_LABELS[editor.population_group]}: {SCREENING_DEFAULTS[editor.population_group]}</FormHelperText></FormControl>
-          {editor.screening_tool === 'nrs_2002' && <Grid container spacing={2}>{[['nrs_nutrition', 'Puntaje nutricional'], ['nrs_disease', 'Gravedad de enfermedad']].map(([name, label]) => <Grid key={name} size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label={label} value={editor[name as keyof EditorState]} onChange={(e) => set(name as keyof EditorState, e.target.value)} inputProps={{ min: 0, max: 3 }} /></Grid>)}<Grid size={{ xs: 12, md: 4 }}><FormControl fullWidth><InputLabel>Edad ≥ 70 años</InputLabel><Select label="Edad ≥ 70 años" value={editor.nrs_age} onChange={(e) => set('nrs_age', e.target.value)}><MenuItem value="false">No</MenuItem><MenuItem value="true">Sí</MenuItem></Select></FormControl></Grid></Grid>}
+          {editor.screening_tool === 'nrs_2002' && <NrsScreeningForm editor={editor} set={set} legacy={Boolean(record?.screenings[0] && text(record.screenings[0].algorithm_version) !== 'espen-nrs2002-v2')} />}
           {editor.screening_tool === 'strongkids' && <Grid container spacing={2}>{[['strong_subjective', 'Evaluación clínica subjetiva'], ['strong_disease', 'Enfermedad de alto riesgo'], ['strong_intake', 'Ingesta reducida o pérdidas'], ['strong_weight', 'Pérdida o mala ganancia de peso']].map(([name, label]) => <Grid key={name} size={{ xs: 12, md: 6 }}><FormControl fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={editor[name as keyof EditorState]} onChange={(e) => set(name as keyof EditorState, e.target.value)}><MenuItem value="false">No</MenuItem><MenuItem value="true">Sí</MenuItem></Select></FormControl></Grid>)}</Grid>}
           {editor.screening_tool === 'none' && <TextField label="Motivo documentado" value={editor.no_tool_reason} onChange={(e) => set('no_tool_reason', e.target.value)} required multiline minRows={2} />}
           <Alert severity="info">El puntaje y la clasificación se calculan exclusivamente en backend y quedan congelados con su versión.</Alert>
@@ -757,7 +960,7 @@ function EvolutionStartDialog({ open, onClose, onSelect }: {
   </Dialog>
 }
 
-function CareTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string, historical: boolean, csrfToken: string, onChanged: () => void }) {
+function CareTab({ admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, onChanged: () => void }) {
   const [refresh, setRefresh] = useState(0)
   const { data, loading, error, reload } = useClinicalData<NutritionEncounterList>(`/admissions/${admissionId}/nutrition-care-encounters`, refresh)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -805,8 +1008,24 @@ function CareTab({ admissionId, historical, csrfToken, onChanged }: { admissionI
     </SectionCard>
     {selected && !editorOpen && <EncounterViewer record={selected} onClose={() => setSelected(null)} />}
     <EvolutionStartDialog open={startOpen} onClose={() => setStartOpen(false)} onSelect={start} />
-    <NutritionEditor open={editorOpen} record={selected?.encounter.status === 'draft' ? selected : null} admissionId={admissionId} csrfToken={csrfToken} mode={mode} onClose={() => { setEditorOpen(false); setSelected(null) }} onSaved={() => { setEditorOpen(false); setSelected(null); setRefresh((value) => value + 1); onChanged() }} />
+    <NutritionEditor open={editorOpen} record={selected?.encounter.status === 'draft' ? selected : null} admissionId={admissionId} csrfToken={csrfToken} mode={mode} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onClose={() => { setEditorOpen(false); setSelected(null) }} onSaved={() => { setEditorOpen(false); setSelected(null); setRefresh((value) => value + 1); onChanged() }} />
   </Stack>
+}
+
+function ScreeningResult({ row }: { row: Record<string, unknown> }) {
+  const answers = (row.answers as Array<Record<string, unknown>> | undefined) ?? []
+  const byCode = Object.fromEntries(answers.map((answer) => [text(answer.answer_code), answer]))
+  const classification = text(row.classification)
+  if (row.tool_code !== 'nrs_2002') return <Typography>{text(row.tool_code)} · puntaje {text(row.total_score)} · {classification}</Typography>
+  const resultLabel = classification === 'nutritional_risk' ? 'Con riesgo nutricional'
+    : classification === 'initial_screen_negative' ? 'Tamizaje inicial negativo'
+      : classification === 'no_nutritional_risk' ? 'Sin riesgo nutricional' : 'Tamizaje incompleto'
+  return <Box sx={{ border: 1, borderColor: classification === 'nutritional_risk' ? 'warning.main' : 'divider', borderRadius: 2, p: 1.5 }}><Stack spacing={1}>
+    <Stack direction="row" justifyContent="space-between" gap={1} flexWrap="wrap"><Typography fontWeight={800}>NRS-2002 · {resultLabel}</Typography><Chip color={classification === 'nutritional_risk' ? 'warning' : classification === 'incomplete' ? 'default' : 'success'} label={`Puntaje ${text(row.total_score)}`} /></Stack>
+    <Typography variant="caption" color="text.secondary">Algoritmo {text(row.algorithm_version)} · aplicado {formatDate(row.applied_at)}</Typography>
+    {classification !== 'initial_screen_negative' && classification !== 'incomplete' && <Grid container spacing={1}><Grid size={{ xs: 4 }}><FieldValue label="Deterioro nutricional" value={byCode.nutritional_status_score?.component_score ?? byCode.nutritional_status_score?.answer_value} /></Grid><Grid size={{ xs: 4 }}><FieldValue label="Gravedad" value={byCode.disease_severity_score?.component_score ?? byCode.disease_severity_score?.answer_value} /></Grid><Grid size={{ xs: 4 }}><FieldValue label="Edad" value={byCode.age_70_or_more?.component_score ?? (byCode.age_70_or_more?.answer_value === 'true' ? 1 : 0)} /></Grid></Grid>}
+    {(classification === 'initial_screen_negative' || classification === 'no_nutritional_risk') && <Typography variant="body2">Repetir el tamizaje semanalmente durante la hospitalización.</Typography>}
+  </Stack></Box>
 }
 
 function EncounterViewer({ record, onClose }: { record: NutritionEncounterRead, onClose: () => void }) {
@@ -820,7 +1039,7 @@ function EncounterViewer({ record, onClose }: { record: NutritionEncounterRead, 
       <Grid container spacing={1}>{session.values.map((row) => <Grid key={row.id} size={{ xs: 12, sm: 6 }}><Typography variant="body2"><strong>{ADVANCED_MEASUREMENT_LABELS[row.measurement_code] || row.measurement_code}</strong>{row.laterality !== 'none' ? ` · ${row.laterality === 'left' ? 'izquierda' : row.laterality === 'right' ? 'derecha' : 'bilateral'}` : ''}{row.attempt_number ? ` · intento ${row.attempt_number}` : ''}: {text(row.value)} {row.unit} {row.value_nature === 'calculated' && <Chip component="span" size="small" color="primary" label="calculado" sx={{ ml: 0.5 }} />}</Typography></Grid>)}</Grid>
       {session.session_type === 'bioimpedance' && <Typography variant="caption" color="text.secondary">Preparación: {session.preparation_status ?? 'no registrada'} · Hidratación: {session.hydration_status ?? 'no registrada'} · Edema: {session.edema_present === null ? 'no registrado' : session.edema_present ? 'sí' : 'no'}</Typography>}
     </Stack></Box>)}</Stack></>}
-    {record.screenings.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Tamizaje</Typography>{record.screenings.map((row) => <Typography key={text(row.id)}>{text(row.tool_code)} · puntaje {text(row.total_score)} · {text(row.classification)}</Typography>)}</>}
+    {record.screenings.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Tamizaje</Typography><Stack spacing={1.5}>{record.screenings.map((row) => <ScreeningResult key={text(row.id)} row={row} />)}</Stack></>}
     {record.requirements.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Requerimientos</Typography>{record.requirements.map((row) => <Typography key={text(row.id)}>{text(row.nutrient_code)}: {text(row.adopted_result)} {text(row.unit)} · {text(row.method)}</Typography>)}</>}
     {record.diagnoses.length > 0 && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Diagnósticos PES</Typography>{record.diagnoses.map((row) => <Typography key={text(row.id)}>{text(row.generated_statement)}</Typography>)}</>}
     {record.prescription && <><Divider /><Typography variant="subtitle1" fontWeight={800}>Prescripción</Typography><FieldValue label="Régimen" value={record.prescription.regimen_type} /><FieldValue label="Vía" value={record.prescription.primary_route} /><FieldValue label="Restricciones" value={record.prescription.restrictions} /></>}
@@ -878,8 +1097,8 @@ export function NutritionSummaryCard({ admissionId }: { admissionId: string }) {
   return <SectionCard title="Resumen nutricional clínico" description="Visible sólo para nutricionista y jefatura.">{loading ? <LoadingState label="Cargando resumen nutricional" rows={2} /> : error ? <ErrorState message={error} onRetry={() => void reload()} /> : !data?.latest_encounter ? <EmptyState title="Sin evolución finalizada" description="Los borradores no se publican como información clínica vigente." /> : <Stack spacing={2}>{data.active_alerts.map((alert) => <Alert severity={alert.severity === 'critical' ? 'error' : 'warning'} key={text(alert.id)}>{text(alert.description)} · Fuente: {text(alert.source)} · Verificación: {text(alert.verification_status)}</Alert>)}<Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Última evolución" value={formatDate(data.latest_encounter.finalized_at)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={data.latest_encounter.professional_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado nutricional" value={data.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Diagnósticos PES activos" value={data.active_diagnoses.map((row) => text(row.generated_statement)).join(' · ')} /></Grid><Grid size={12}><FieldValue label="Reevaluación sugerida" value={formatDate(data.suggested_reassessment_at)} /></Grid></Grid></Stack>}</SectionCard>
 }
 
-export function NutritionClinicalTab({ tab, admissionId, historical, csrfToken, onChanged }: { tab: ClinicalTab, admissionId: string, historical: boolean, csrfToken: string, onChanged: () => void }) {
-  if (tab === 'care') return <CareTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+export function NutritionClinicalTab({ tab, admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { tab: ClinicalTab, admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, onChanged: () => void }) {
+  if (tab === 'care') return <CareTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onChanged={onChanged} />
   if (tab === 'assessment') return <AssessmentTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   if (tab === 'prescription') return <PrescriptionTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   if (tab === 'intake') return <IntakeTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />

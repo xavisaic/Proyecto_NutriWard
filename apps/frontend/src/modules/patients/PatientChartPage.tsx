@@ -580,6 +580,8 @@ export function PatientChartPage({
           admissionId={admission.id}
           historical={admission.is_historical}
           csrfToken={csrfToken}
+          patientDateOfBirth={summary.patient.date_of_birth}
+          patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated}
           onChanged={() => void load()}
         />
       ) : null}

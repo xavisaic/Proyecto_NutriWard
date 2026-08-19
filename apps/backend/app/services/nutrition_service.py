@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Iterable
 
 from fastapi import HTTPException, status
@@ -27,6 +27,7 @@ from app.models.nutrition import (
     NutritionalScreening,
     NutritionalScreeningAnswer,
 )
+from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.nutrition import (
     CancellationCreate,
@@ -124,7 +125,15 @@ def _rows(session: Session, model: type, encounter_id: uuid.UUID) -> list[Any]:
     return list(session.exec(select(model).where(model.encounter_id == encounter_id)).all())
 
 
-def _screening_score(tool_code: str, answers: list[Any]) -> tuple[str, Decimal | None, str | None, dict[str, Decimal | None]]:
+def _truthy(value: str) -> bool:
+    return value in ("true", "1", "yes", "si", "sí")
+
+
+def _screening_score(
+    tool_code: str,
+    answers: list[Any],
+    age_70_from_record: bool | None = None,
+) -> tuple[str, Decimal | None, str | None, dict[str, Decimal | None]]:
     values = {answer.answer_code: answer.answer_value.strip().lower() for answer in answers}
     if tool_code == "none":
         return "no-tool-v1", None, None, {code: None for code in values}
@@ -136,17 +145,116 @@ def _screening_score(tool_code: str, answers: list[Any]) -> tuple[str, Decimal |
             "initial_severely_ill",
         )
         initial_present = all(code in values for code in initial_codes)
+        flow_v2 = values.get("screening_flow_version") == "v2"
         if initial_present:
             initial_components = {
                 code: Decimal(
-                    int(values[code] in ("true", "1", "yes", "si", "sí"))
+                    int(_truthy(values[code]))
                 )
                 for code in initial_codes
             }
             if not any(initial_components.values()):
-                return "espen-nrs2002-v1", Decimal(0), "initial_screen_negative", initial_components
+                algorithm = (
+                    "espen-nrs2002-v2"
+                    if values.get("screening_flow_version") == "v2"
+                    or "weight_loss_category" in values
+                    or "intake_category" in values
+                    else "espen-nrs2002-v1"
+                )
+                return algorithm, Decimal(0), "initial_screen_negative", initial_components
         else:
-            initial_components = {}
+            initial_components = {
+                code: Decimal(int(_truthy(values[code])))
+                for code in initial_codes
+                if code in values
+            }
+            if flow_v2:
+                return (
+                    "espen-nrs2002-v2",
+                    None,
+                    "incomplete",
+                    initial_components,
+                )
+
+        structured_codes = {
+            "weight_loss_category",
+            "intake_category",
+            "impaired_general_condition",
+            "disease_severity_score",
+            "age_70_or_more",
+        }
+        structured_v2 = (
+            values.get("screening_flow_version") == "v2"
+            or bool(
+                {"weight_loss_category", "intake_category", "impaired_general_condition", "current_bmi"}
+                & set(values)
+            )
+        )
+        if structured_v2:
+            missing = structured_codes - set(values)
+            bmi_value_required = (
+                bool(initial_components.get("initial_bmi_below_20_5"))
+                and not values.get("current_bmi")
+            )
+            if missing or bmi_value_required:
+                return (
+                    "espen-nrs2002-v2",
+                    None,
+                    "incomplete",
+                    initial_components,
+                )
+            weight_scores = {
+                "none_or_below_threshold": 0,
+                "over_5_3_months": 1,
+                "over_5_2_months": 2,
+                "over_5_1_month_or_over_15_3_months": 3,
+            }
+            intake_scores = {
+                "over_75": 0,
+                "50_75": 1,
+                "25_50": 2,
+                "below_25": 3,
+            }
+            try:
+                weight_score = weight_scores[values["weight_loss_category"]]
+                intake_score = intake_scores[values["intake_category"]]
+                disease = int(values["disease_severity_score"])
+            except (KeyError, ValueError) as exc:
+                raise _invalid("Los criterios seleccionados para NRS-2002 no son válidos.") from exc
+            if disease not in range(4):
+                raise _invalid("La gravedad de enfermedad NRS-2002 debe estar entre 0 y 3.")
+            impaired = _truthy(values["impaired_general_condition"])
+            bmi_score = 0
+            if values.get("current_bmi"):
+                try:
+                    current_bmi = Decimal(values["current_bmi"])
+                except InvalidOperation as exc:
+                    raise _invalid("El IMC utilizado en NRS-2002 no es válido.") from exc
+                if current_bmi <= 0:
+                    raise _invalid("El IMC utilizado en NRS-2002 debe ser mayor que cero.")
+                if impaired and current_bmi < Decimal("18.5"):
+                    bmi_score = 3
+                elif impaired and current_bmi < Decimal("20.5"):
+                    bmi_score = 2
+            nutritional = max(weight_score, intake_score, bmi_score)
+            age = age_70_from_record if age_70_from_record is not None else _truthy(values["age_70_or_more"])
+            total = Decimal(nutritional + disease + int(age))
+            components = {
+                **initial_components,
+                "weight_loss_category": Decimal(weight_score),
+                "intake_category": Decimal(intake_score),
+                "current_bmi": Decimal(bmi_score),
+                "impaired_general_condition": Decimal(int(impaired)),
+                "nutritional_status_score": Decimal(nutritional),
+                "disease_severity_score": Decimal(disease),
+                "age_70_or_more": Decimal(int(age)),
+            }
+            return (
+                "espen-nrs2002-v2",
+                total,
+                "nutritional_risk" if total >= 3 else "no_nutritional_risk",
+                components,
+            )
         try:
             nutritional = int(values["nutritional_status_score"])
             disease = int(values["disease_severity_score"])
@@ -156,7 +264,7 @@ def _screening_score(tool_code: str, answers: list[Any]) -> tuple[str, Decimal |
             ) from exc
         if nutritional not in range(4) or disease not in range(4):
             raise _invalid("Los componentes NRS-2002 deben estar entre 0 y 3.")
-        age = values.get("age_70_or_more", "false") in ("true", "1", "yes", "si", "sí")
+        age = _truthy(values.get("age_70_or_more", "false"))
         total = Decimal(nutritional + disease + int(age))
         components = {
             **initial_components,
@@ -453,15 +561,42 @@ def _replace_advanced_measurements(
                     value_nature="calculated",
                 )
             )
+def _age_at(date_of_birth: Any, reference: Any) -> int:
+    birthday_passed = (reference.month, reference.day) >= (
+        date_of_birth.month,
+        date_of_birth.day,
+    )
+    return reference.year - date_of_birth.year - (0 if birthday_passed else 1)
+
+
 def _replace_screenings(session: Session, encounter: NutritionalCareEncounter, payloads: Iterable[Any]) -> None:
     previous = _rows(session, NutritionalScreening, encounter.id)
     for screening in previous:
         session.exec(delete(NutritionalScreeningAnswer).where(NutritionalScreeningAnswer.screening_id == screening.id))
     session.exec(delete(NutritionalScreening).where(NutritionalScreening.encounter_id == encounter.id))
     session.flush()
+    admission = _admission(session, encounter.admission_id)
+    patient = session.get(Patient, admission.patient_id)
     for payload in payloads:
-        algorithm, total, classification, components = _screening_score(payload.tool_code, payload.answers)
+        age_70_from_record = None
+        if (
+            payload.tool_code == "nrs_2002"
+            and patient is not None
+            and patient.date_of_birth is not None
+            and not patient.date_of_birth_is_estimated
+        ):
+            age_70_from_record = _age_at(
+                patient.date_of_birth, payload.applied_at.date()
+            ) >= 70
+        algorithm, total, classification, components = _screening_score(
+            payload.tool_code,
+            payload.answers,
+            age_70_from_record=age_70_from_record,
+        )
         snapshot = {answer.answer_code: answer.answer_value for answer in payload.answers}
+        if algorithm == "espen-nrs2002-v2" and age_70_from_record is not None:
+            snapshot["age_70_or_more"] = "true" if age_70_from_record else "false"
+            snapshot["age_source"] = "patient_record_exact"
         screening = NutritionalScreening(
             admission_id=encounter.admission_id,
             encounter_id=encounter.id,
@@ -477,13 +612,31 @@ def _replace_screenings(session: Session, encounter: NutritionalCareEncounter, p
         )
         session.add(screening)
         session.flush()
+        supplied_codes = {answer.answer_code for answer in payload.answers}
         for answer in payload.answers:
+            answer_value = answer.answer_value
+            if algorithm == "espen-nrs2002-v2" and answer.answer_code == "age_70_or_more":
+                answer_value = "true" if components.get("age_70_or_more") else "false"
             session.add(NutritionalScreeningAnswer(
                 screening_id=screening.id,
                 answer_code=answer.answer_code,
-                answer_value=answer.answer_value,
+                answer_value=answer_value,
                 component_score=components.get(answer.answer_code),
             ))
+        if (
+            algorithm == "espen-nrs2002-v2"
+            and "nutritional_status_score" not in supplied_codes
+            and "nutritional_status_score" in components
+        ):
+            derived = components["nutritional_status_score"]
+            session.add(
+                NutritionalScreeningAnswer(
+                    screening_id=screening.id,
+                    answer_code="nutritional_status_score",
+                    answer_value=str(int(derived or 0)),
+                    component_score=derived,
+                )
+            )
 
 
 def _replace_requirements(session: Session, encounter: NutritionalCareEncounter, payloads: Iterable[Any]) -> None:
@@ -812,6 +965,8 @@ def _finalization_errors(session: Session, encounter: NutritionalCareEncounter) 
             errors.append(
                 "Evaluación inicial: registre un tamizaje o documente que no aplica."
             )
+        elif any(screening.classification == "incomplete" for screening in screenings):
+            errors.append("Tamizaje: complete todas las respuestas antes de finalizar.")
         if not _rows(session, NutritionalDiagnosis, encounter.id):
             errors.append(
                 "Evaluación inicial: registre al menos un diagnóstico PES estructurado."
@@ -1085,7 +1240,7 @@ def catalogs() -> NutritionCatalogs:
         meal_times=["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "night_snack", "other"],
         screening_defaults={"adult": "nrs_2002", "pediatric": "strongkids", "neonatal": "none", "pregnancy": "none"},
         screening_tools=[
-            {"code": "nrs_2002", "version": "ESPEN 2002", "population": ["adult"], "reference": "https://www.espen.org/documents/Screening.pdf"},
+            {"code": "nrs_2002", "version": "ESPEN 2002", "algorithm_version": "espen-nrs2002-v2", "population": ["adult"], "reference": "https://www.espen.org/documents/Screening.pdf"},
             {"code": "strongkids", "version": "original", "population": ["pediatric"], "reference": "Hulst et al., Clin Nutr. 2010"},
             {"code": "none", "version": "institutional-policy-pending", "population": ["neonatal", "pregnancy"]},
         ],

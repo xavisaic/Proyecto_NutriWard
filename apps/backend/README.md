@@ -1,4 +1,4 @@
-# Backend (Fase 9.5)
+# Backend (Fase 9.6)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -31,6 +31,8 @@ Alembic es `20260817_0014`; el modelo se documenta en
 `docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md` y
 `docs/planning/FASE-9.4-HISTORIA-EPISODIO-ACTUAL.md`. Los protocolos de antropometría
 avanzada se detallan en `docs/planning/FASE-9.5-ANTROPOMETRIA-AVANZADA.md`.
+El formulario y algoritmo NRS-2002 guiado se documentan en
+`docs/planning/FASE-9.6-NRS-2002-GUIADO.md`.
 
 La historia del episodio actual es una narrativa exclusiva de la hospitalización. Cada
 actualización inserta una versión clínica inmutable con fuente, fecha, autor y motivo; la
@@ -47,6 +49,11 @@ valores originales y resultados derivados. El backend calcula el máximo de tres
 por mano y bilateral, y la media de tres lecturas por cada pliegue más la sumatoria de los
 cuatro sitios. Las salidas BIA son informadas por el equipo y no se interpretan ni
 recalculan automáticamente.
+
+NRS-2002 `espen-nrs2002-v2` recibe respuestas clínicas estructuradas y calcula en backend
+el mayor de los criterios de pérdida de peso, ingesta e IMC con deterioro. Luego suma la
+gravedad confirmada y el punto por edad. Una fecha de nacimiento exacta prevalece sobre el
+valor enviado; un tamizaje incompleto puede persistir en borrador, pero no finalizarse.
 
 ## Ejecución local
 

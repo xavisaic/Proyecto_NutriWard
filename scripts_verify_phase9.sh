@@ -30,4 +30,4 @@ if "$git_tool" grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)apps/fron
 "$git_tool" diff --check
 echo "[12/12] Docker Compose configuration"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then docker compose -f infra/docker-compose.yml --env-file infra/.env.example config >/dev/null; else echo "Docker daemon unavailable; Compose runtime skipped."; fi
-echo "Phase 9.5 verification completed."
+echo "Phase 9.6 verification completed."

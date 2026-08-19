@@ -82,5 +82,5 @@ try {
         docker compose -f infra/docker-compose.yml --env-file infra/.env.example config | Out-Null
         Assert-NativeSuccess "Docker Compose"
     } else { Write-Host "Docker daemon unavailable; Compose runtime skipped." }
-    Write-Host "Phase 9.5 verification completed."
+    Write-Host "Phase 9.6 verification completed."
 } finally { Pop-Location }

@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.models.admission import Admission
 from app.models.audit_log import AuditLog
+from app.models.patient import Patient
 from app.models.role import Role
 from app.models.user import User
 from app.models.user_role import UserRole
@@ -634,3 +635,94 @@ def test_nrs_initial_screen_negative_does_not_require_final_components(client, d
     screening = response.json()["screenings"][0]
     assert screening["total_score"] == "0.00"
     assert screening["classification"] == "initial_screen_negative"
+
+
+def test_nrs_v2_derives_components_uses_maximum_and_calculates_exact_age(client, db_session) -> None:
+    admission = active_admission(db_session)
+    patient = db_session.get(Patient, admission.patient_id)
+    assert patient is not None
+    patient.date_of_birth = date(1950, 1, 1)
+    patient.date_of_birth_is_estimated = False
+    db_session.add(patient)
+    db_session.commit()
+    auth = authenticate(client)
+    headers = {"X-CSRF-Token": auth["csrf_token"]}
+    payload = complete_payload()
+    payload["screenings"] = [{
+        "tool_code": "nrs_2002",
+        "tool_version": "ESPEN 2002",
+        "applied_at": "2026-08-13T10:00:00Z",
+        "answers": [
+            {"answer_code": "screening_flow_version", "answer_value": "v2"},
+            {"answer_code": "initial_bmi_below_20_5", "answer_value": "true"},
+            {"answer_code": "initial_weight_loss_3_months", "answer_value": "true"},
+            {"answer_code": "initial_reduced_intake_last_week", "answer_value": "true"},
+            {"answer_code": "initial_severely_ill", "answer_value": "false"},
+            {"answer_code": "weight_loss_category", "answer_value": "over_5_2_months"},
+            {"answer_code": "intake_category", "answer_value": "50_75"},
+            {"answer_code": "current_bmi", "answer_value": "19"},
+            {"answer_code": "impaired_general_condition", "answer_value": "true"},
+            {"answer_code": "disease_severity_score", "answer_value": "2"},
+            {"answer_code": "age_70_or_more", "answer_value": "false"},
+        ],
+    }]
+    response = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=payload,
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    screening = response.json()["screenings"][0]
+    assert screening["algorithm_version"] == "espen-nrs2002-v2"
+    assert screening["total_score"] == "5.00"
+    assert screening["classification"] == "nutritional_risk"
+    answers = {row["answer_code"]: row for row in screening["answers"]}
+    assert answers["weight_loss_category"]["component_score"] == "2.00"
+    assert answers["intake_category"]["component_score"] == "1.00"
+    assert answers["current_bmi"]["component_score"] == "2.00"
+    assert answers["nutritional_status_score"]["answer_value"] == "2"
+    assert answers["age_70_or_more"]["answer_value"] == "true"
+
+
+def test_nrs_v2_initial_negative_and_incomplete_final_validation(client, db_session) -> None:
+    admission = active_admission(db_session)
+    auth = authenticate(client)
+    headers = {"X-CSRF-Token": auth["csrf_token"]}
+    payload = complete_payload()
+    initial_answers = [
+        {"answer_code": "screening_flow_version", "answer_value": "v2"},
+        {"answer_code": "initial_bmi_below_20_5", "answer_value": "false"},
+        {"answer_code": "initial_weight_loss_3_months", "answer_value": "false"},
+        {"answer_code": "initial_reduced_intake_last_week", "answer_value": "false"},
+        {"answer_code": "initial_severely_ill", "answer_value": "false"},
+    ]
+    payload["screenings"] = [{
+        "tool_code": "nrs_2002", "tool_version": "ESPEN 2002",
+        "applied_at": "2026-08-13T10:00:00Z", "answers": initial_answers,
+    }]
+    negative = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=payload, headers=headers,
+    )
+    assert negative.status_code == 201, negative.text
+    assert negative.json()["screenings"][0]["algorithm_version"] == "espen-nrs2002-v2"
+    assert negative.json()["screenings"][0]["classification"] == "initial_screen_negative"
+
+    payload["screenings"][0]["answers"][1]["answer_value"] = "true"
+    payload["screenings"][0]["answers"].append(
+        {"answer_code": "weight_loss_category", "answer_value": "over_5_3_months"}
+    )
+    incomplete = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-care-encounters",
+        json=payload, headers=headers,
+    )
+    assert incomplete.status_code == 201, incomplete.text
+    incomplete_screening = incomplete.json()["screenings"][0]
+    assert incomplete_screening["classification"] == "incomplete"
+    finalized = client.post(
+        f"/api/v1/nutrition-care-encounters/{incomplete.json()['encounter']['id']}/finalize",
+        json={"version": incomplete.json()["encounter"]["version"]},
+        headers=headers,
+    )
+    assert finalized.status_code == 422
+    assert "complete todas las respuestas" in finalized.text

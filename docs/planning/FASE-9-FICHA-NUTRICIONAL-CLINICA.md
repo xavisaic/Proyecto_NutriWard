@@ -96,17 +96,25 @@ de algoritmo no recalcula registros históricos.
 
 ### NRS-2002
 
-Implementación `espen-nrs2002-v1` para adultos hospitalizados:
+La implementación vigente `espen-nrs2002-v2` para adultos hospitalizados:
 
 - acepta las cuatro respuestas de tamizaje inicial;
 - si todas son negativas, conserva total 0 y `initial_screen_negative`;
-- cuando corresponde tamizaje final, suma estado nutricional 0–3, gravedad de enfermedad
-  0–3 y un punto por edad mayor o igual a 70 años;
+- deriva el deterioro nutricional usando el mayor puntaje entre pérdida de peso, ingesta e
+  IMC con deterioro general; esos criterios no se suman entre sí;
+- requiere que el profesional confirme la gravedad metabólica 0–3 sin inferirla desde un
+  diagnóstico;
+- calcula la edad desde la fecha de nacimiento exacta y exige confirmación cuando es
+  estimada o no está disponible;
+- suma deterioro nutricional 0–3, gravedad 0–3 y un punto por edad mayor o igual a 70 años;
 - total mayor o igual a 3 clasifica `nutritional_risk`.
 
 El frontend no puede enviar el total como autoridad. Los criterios clínicos que producen
 cada componente deben ser elegidos y documentados por el profesional; NutriWard no asigna
-gravedad por diagnóstico.
+gravedad por diagnóstico. El total mostrado por el frontend es provisional y el backend lo
+recalcula. Un formulario incompleto se conserva como borrador, pero bloquea la finalización.
+Los registros históricos `espen-nrs2002-v1` no se recalculan. Ver
+`FASE-9.6-NRS-2002-GUIADO.md`.
 
 ### STRONGkids
 

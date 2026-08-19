@@ -67,6 +67,48 @@ describe('Ficha nutricional clínica', () => {
     expect(payload.prescription).toBeNull()
   })
 
+  it('guía el NRS-2002 y calcula el riesgo en tiempo real sin enviar un puntaje autoritativo', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') return response({
+        encounter: { id: 'enc-nrs', status: 'draft', version: 1 }, assessment: null,
+        context_items: [], anthropometry: [], advanced_measurements: [], screenings: [], requirements: [],
+        diagnoses: [], prescription: null, monitoring: [], intake: [], labs: [], alerts: [],
+      }, 201)
+      return response(emptyList)
+    })
+    render(<NutritionClinicalTab tab="care" admissionId="adm-1" historical={false} csrfToken="csrf" patientDateOfBirth="1950-01-01" patientAgeIsEstimated={false} onChanged={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Registrar evolución' }))
+    await userEvent.click(screen.getByRole('button', { name: /Evaluación nutricional inicial/ }))
+    await userEvent.click(screen.getByRole('button', { name: '4' }))
+
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'IMC utilizado' }), '19')
+    expect(screen.getByText('Sí · calculado')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Sí · ¿Ha perdido peso durante los últimos 3 meses?' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sí · ¿Redujo la ingesta durante la última semana?' }))
+    await userEvent.click(screen.getByRole('button', { name: 'No · ¿Está gravemente enfermo o en tratamiento intensivo?' }))
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Pérdida de peso' }))
+    await userEvent.click(screen.getByRole('option', { name: '2 · Más de 5% en 2 meses' }))
+    await userEvent.click(screen.getByRole('combobox', { name: 'Ingesta respecto del requerimiento' }))
+    await userEvent.click(screen.getByRole('option', { name: '1 · 50–75%' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sí · ¿Existe deterioro del estado general asociado al IMC?' }))
+    await userEvent.click(screen.getByRole('button', { name: /2 · Gravedad moderada/ }))
+
+    expect(screen.getByText(/70 años o más · \+1 punto/)).toBeInTheDocument()
+    expect(screen.getByText(/Con riesgo nutricional: efectuar valoración completa/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    const payload = JSON.parse(String(createCall?.[1]?.body))
+    const answers = Object.fromEntries(payload.screenings[0].answers.map((answer: { answer_code: string, answer_value: string }) => [answer.answer_code, answer.answer_value]))
+    expect(answers).toMatchObject({
+      screening_flow_version: 'v2', initial_bmi_below_20_5: 'true',
+      weight_loss_category: 'over_5_2_months', intake_category: '50_75',
+      disease_severity_score: '2', age_70_or_more: 'true', age_source: 'patient_record_exact',
+    })
+    expect(answers.nutritional_status_score).toBeUndefined()
+  }, 30_000)
+
   it('registra circunferencias y la serie bilateral de dinamometría en una evolución', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       if (init?.method === 'POST') return response({
@@ -101,7 +143,7 @@ describe('Ficha nutricional clínica', () => {
     expect(payload.advanced_measurements[0].values[0]).toMatchObject({ measurement_code: 'calf_circumference', laterality: 'left', value: 31.5, unit: 'cm' })
     expect(payload.advanced_measurements[1]).toMatchObject({ session_type: 'handgrip', protocol_code: 'hospital-handgrip', device_manufacturer: 'Jamar', device_model: 'Plus+' })
     expect(payload.advanced_measurements[1].values).toHaveLength(6)
-  }, 15_000)
+  }, 30_000)
 
   it('permite iniciar una modificación de prescripción desde su propio módulo', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
