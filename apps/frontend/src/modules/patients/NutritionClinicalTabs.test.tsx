@@ -145,13 +145,21 @@ describe('Ficha nutricional clínica', () => {
     expect(payload.advanced_measurements[1].values).toHaveLength(6)
   }, 30_000)
 
-  it('permite iniciar una modificación de prescripción desde su propio módulo', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(emptyList))
+  it('abre el espacio de prescripción con metas, estrategias y cálculo en tiempo real', async () => {
+    const workspace = {
+      admission_id: 'adm-1',
+      requirements: [{ nutrient_code: 'energy', adopted_result: '1700.00', unit: 'kcal/day' }],
+      settings: { green_min_percent: '90', green_max_percent: '110', yellow_min_percent: '80', yellow_max_percent: '120' },
+      formulas: [], active: null, drafts: [], history: [],
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(workspace))
     render(<NutritionClinicalTab tab="prescription" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Modificar prescripción' }))
-    expect(screen.getByRole('heading', { name: 'Acción específica' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '9' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '3' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Sin prescripción activa')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva prescripción' }))
+    expect(screen.getByRole('heading', { name: 'Contexto y metas' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Estrategia nutricional' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Aportes en tiempo real' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Energía')).toHaveValue(1700)
   })
 
   it('proyecta resumen finalizado, alertas y PES sin exponer auditoría', async () => {

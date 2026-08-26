@@ -10,6 +10,7 @@ from app.api.v1.endpoints.nutritionist_service_assignments import (
     router as nutritionist_service_assignments_router,
 )
 from app.api.v1.endpoints.nutrition import router as nutrition_router
+from app.api.v1.endpoints.prescription_orders import router as prescription_orders_router
 from app.api.v1.endpoints.patients import router as patients_router
 from app.api.v1.endpoints.roles import router as roles_router
 from app.api.v1.endpoints.users import router as users_router
@@ -25,6 +26,7 @@ api_router.include_router(nutritionist_service_assignments_router)
 api_router.include_router(allergies_router)
 api_router.include_router(clinical_context_router)
 api_router.include_router(nutrition_router)
+api_router.include_router(prescription_orders_router)
 api_router.include_router(treatments_router)
 api_router.include_router(hospital_router)
 api_router.include_router(patients_router)

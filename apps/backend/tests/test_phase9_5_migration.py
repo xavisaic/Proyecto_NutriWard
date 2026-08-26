@@ -16,6 +16,12 @@ PHASE9_7_TABLES = {
     "admission_treatment_reviews",
     "medication_catalog_items",
 }
+PHASE9_8_TABLES = {
+    "enteral_formula_catalog_items", "nutrition_prescription_settings",
+    "nutrition_prescription_orders", "nutrition_prescription_order_meals",
+    "nutrition_prescription_supplements", "nutrition_prescription_progressions",
+    "nutrition_prescription_monitoring",
+}
 
 
 def run_alembic(database_url: str, *arguments: str) -> None:
@@ -39,7 +45,7 @@ def test_phase9_5_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
     previous_tables = [
         table
         for name, table in metadata.tables.items()
-        if name not in PHASE9_5_TABLES | PHASE9_7_TABLES
+        if name not in PHASE9_5_TABLES | PHASE9_7_TABLES | PHASE9_8_TABLES
     ]
     metadata.create_all(engine, tables=previous_tables)
     with engine.begin() as connection:
@@ -87,4 +93,4 @@ def test_single_alembic_head_continues_after_phase9_5() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260826_0016" in heads[0]
+    assert "20260826_0017" in heads[0]

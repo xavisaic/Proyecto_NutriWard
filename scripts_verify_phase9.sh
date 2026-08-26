@@ -17,11 +17,11 @@ echo "[5/12] metadata tables, constraints, precision and indexes"
 echo "[6/12] isolated migration upgrade, downgrade and re-upgrade"
 (cd apps/backend && python -m pytest tests/test_phase9_migration.py tests/test_phase9_1_migration.py tests/test_phase9_2_migration.py tests/test_phase9_4_migration.py tests/test_phase9_5_migration.py tests/test_phase9_7_migration.py tests/test_medication_catalog_migration.py -q)
 echo "[7/12] single Alembic head"
-(cd apps/backend && test "$(alembic heads | wc -l | tr -d ' ')" -eq 1 && alembic heads | grep -q '20260826_0016')
+(cd apps/backend && test "$(alembic heads | wc -l | tr -d ' ')" -eq 1 && alembic heads | grep -q '20260826_0017')
 echo "[8/12] idempotent seeds without clinical fixtures"
 (cd apps/backend && python -c "from sqlalchemy.pool import StaticPool; from sqlmodel import Session,create_engine; from app.db.base import get_metadata; from app.db.seed import seed_database; e=create_engine('sqlite://',connect_args={'check_same_thread':False},poolclass=StaticPool); get_metadata().create_all(e); s=Session(e); seed_database(s); first={k:len(s.exec(t.select()).all()) for k,t in get_metadata().tables.items()}; seed_database(s); second={k:len(s.exec(t.select()).all()) for k,t in get_metadata().tables.items()}; assert first==second,(first,second); clinical={'patient_conditions','patient_condition_status_history','admission_diagnoses','admission_diagnosis_status_history','admission_clinical_history_versions','patient_allergy_intolerances','allergy_intolerance_reactions','allergy_intolerance_status_history','patient_allergy_review_assertions','admission_treatments','admission_treatment_versions','admission_treatment_reviews'}|{name for name in second if name.startswith('nutritional_')}; assert all(second[name]==0 for name in clinical)")
 echo "[9/12] clinical algorithm tests"
-(cd apps/backend && python -m pytest tests/test_nutrition.py tests/test_clinical_context.py tests/test_allergies.py tests/test_treatments.py -q)
+(cd apps/backend && python -m pytest tests/test_nutrition.py tests/test_clinical_context.py tests/test_allergies.py tests/test_treatments.py tests/test_prescription_orders.py -q)
 echo "[10/12] Python compilation"
 (cd apps/backend && python -m compileall -q app tests)
 echo "[11/12] conflict markers and diff whitespace"
@@ -30,4 +30,4 @@ if "$git_tool" grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ':(exclude)apps/fron
 "$git_tool" diff --check
 echo "[12/12] Docker Compose configuration"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then docker compose -f infra/docker-compose.yml --env-file infra/.env.example config >/dev/null; else echo "Docker daemon unavailable; Compose runtime skipped."; fi
-echo "Phase 9.7 verification completed."
+echo "Phase 9.8 verification completed."

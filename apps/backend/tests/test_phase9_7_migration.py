@@ -12,6 +12,15 @@ PHASE9_7_TABLES = {
     "admission_treatment_reviews",
     "medication_catalog_items",
 }
+PHASE9_8_TABLES = {
+    "enteral_formula_catalog_items",
+    "nutrition_prescription_settings",
+    "nutrition_prescription_orders",
+    "nutrition_prescription_order_meals",
+    "nutrition_prescription_supplements",
+    "nutrition_prescription_progressions",
+    "nutrition_prescription_monitoring",
+}
 
 
 def run_alembic(database_url: str, *arguments: str) -> None:
@@ -33,7 +42,7 @@ def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
     engine = create_engine(database_url)
     metadata = get_metadata()
     previous_tables = [
-        table for name, table in metadata.tables.items() if name not in PHASE9_7_TABLES
+        table for name, table in metadata.tables.items() if name not in PHASE9_7_TABLES | PHASE9_8_TABLES
     ]
     metadata.create_all(engine, tables=previous_tables)
     with engine.begin() as connection:
@@ -47,6 +56,7 @@ def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
     run_alembic(database_url, "upgrade", "head")
     inspector = inspect(engine)
     assert PHASE9_7_TABLES <= set(inspector.get_table_names())
+    assert PHASE9_8_TABLES <= set(inspector.get_table_names())
     checks = {
         row["name"]
         for row in inspector.get_check_constraints("admission_treatment_versions")
@@ -64,9 +74,10 @@ def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
     assert any(row["referred_table"] == "admission_treatments" for row in foreign_keys)
 
     run_alembic(database_url, "downgrade", "20260817_0014")
-    assert not (PHASE9_7_TABLES & set(inspect(engine).get_table_names()))
+    assert not ((PHASE9_7_TABLES | PHASE9_8_TABLES) & set(inspect(engine).get_table_names()))
     run_alembic(database_url, "upgrade", "head")
     assert PHASE9_7_TABLES <= set(inspect(engine).get_table_names())
+    assert PHASE9_8_TABLES <= set(inspect(engine).get_table_names())
 
 
 def test_single_alembic_head_is_phase9_7() -> None:
@@ -79,4 +90,4 @@ def test_single_alembic_head_is_phase9_7() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260826_0016" in heads[0]
+    assert "20260826_0017" in heads[0]

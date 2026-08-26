@@ -456,6 +456,118 @@ export interface NutritionLatest {
   suggested_reassessment_at: string | null
 }
 
+export interface EnteralFormulaCatalogItem {
+  id: string
+  code: string
+  display_name: string
+  manufacturer: string | null
+  catalog_version: string
+  kcal_per_ml: string
+  protein_g_per_l: string
+  carbohydrate_g_per_l: string
+  lipid_g_per_l: string
+  fiber_g_per_l: string
+  sodium_mg_per_l: string
+  potassium_mg_per_l: string
+  phosphorus_mg_per_l: string
+  free_water_ml_per_l: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface NutritionPrescriptionCoverage {
+  code: string
+  label: string
+  goal: string | null
+  prescribed: string
+  unit: string
+  percent: string | null
+  color: 'green' | 'yellow' | 'red' | 'neutral'
+  goal_kind: string
+}
+
+export interface NutritionPrescriptionOrder {
+  id: string
+  admission_id: string
+  version_number: number
+  lock_version: number
+  supersedes_order_id: string | null
+  status: 'draft' | 'validated' | 'active' | 'suspended' | 'superseded' | 'cancelled'
+  change_reason: string
+  effective_from: string | null
+  suggested_reassessment_at: string | null
+  oral_enabled: boolean
+  enteral_enabled: boolean
+  fasting_enabled: boolean
+  energy_goal_kcal: string | null
+  protein_goal_g: string | null
+  carbohydrate_goal_g: string | null
+  lipid_goal_g: string | null
+  fluid_goal_ml: string | null
+  fluid_goal_kind: 'target' | 'minimum' | 'maximum' | 'range'
+  regimen_type: string | null
+  food_iddsi: number | null
+  liquid_iddsi: number | null
+  restrictions: string | null
+  allergies_snapshot: string | null
+  feeding_assistance: string | null
+  kitchen_instructions: string | null
+  nursing_instructions: string | null
+  oral_energy_kcal: string
+  oral_protein_g: string
+  oral_carbohydrate_g: string
+  oral_lipid_g: string
+  oral_fluid_ml: string
+  enteral_formula_id: string | null
+  enteral_access_route: string | null
+  enteral_tube_location: string | null
+  enteral_modality: string | null
+  enteral_rate_ml_h: string | null
+  enteral_effective_hours: string | null
+  enteral_volume_ml: string
+  water_flush_ml: string
+  water_flush_every_hours: string | null
+  medication_pause_hours: string
+  enteral_starts_at: string | null
+  prescribed_energy_kcal: string
+  prescribed_protein_g: string
+  prescribed_carbohydrate_g: string
+  prescribed_lipid_g: string
+  prescribed_fluid_ml: string
+  recipe_text: string | null
+  general_observations: string | null
+  author_name: string
+  created_at: string
+  updated_at: string
+  validated_at: string | null
+  activated_at: string | null
+  suspended_at: string | null
+  suspension_reason: string | null
+  formula: EnteralFormulaCatalogItem | null
+  meals: Array<Record<string, string>>
+  supplements: Array<Record<string, string>>
+  progressions: Array<Record<string, string>>
+  monitoring: Array<Record<string, string>>
+  coverage: NutritionPrescriptionCoverage[]
+  alerts: Array<{ severity: 'warning' | 'error'; code: string; message: string }>
+  changes: Array<{ field: string; label: string; before: unknown; after: unknown }>
+}
+
+export interface NutritionPrescriptionWorkspace {
+  admission_id: string
+  requirements: Array<{ nutrient_code: string; adopted_result: string; unit: string }>
+  settings: {
+    green_min_percent: string
+    green_max_percent: string
+    yellow_min_percent: string
+    yellow_max_percent: string
+  }
+  formulas: EnteralFormulaCatalogItem[]
+  active: NutritionPrescriptionOrder | null
+  drafts: NutritionPrescriptionOrder[]
+  history: NutritionPrescriptionOrder[]
+}
+
 export interface ClinicalStatusHistory {
   id: string
   sequence_number: number

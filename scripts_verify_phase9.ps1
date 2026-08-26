@@ -27,11 +27,11 @@ try {
 
     $env:PYTHONPATH = "apps/backend"
     Write-Host "[4/12] OpenAPI clinical contracts and privacy"
-    python -c "from app.main import app; p=app.openapi()['paths']; expected={'/api/v1/admissions/{admission_id}/nutrition-care-encounters','/api/v1/nutrition-care-encounters/{encounter_id}','/api/v1/nutrition-care-encounters/{encounter_id}/finalize','/api/v1/nutrition-care-encounters/{encounter_id}/correct','/api/v1/nutrition-care-encounters/{encounter_id}/cancel','/api/v1/admissions/{admission_id}/nutrition-latest','/api/v1/admissions/{admission_id}/nutrition-assessments','/api/v1/admissions/{admission_id}/nutrition-prescriptions','/api/v1/admissions/{admission_id}/nutrition-intake','/api/v1/admissions/{admission_id}/nutrition-labs','/api/v1/admissions/{admission_id}/clinical-context','/api/v1/admissions/{admission_id}/clinical-history','/api/v1/patients/{patient_id}/conditions','/api/v1/admissions/{admission_id}/diagnoses','/api/v1/patient-conditions/{condition_id}/status','/api/v1/admission-diagnoses/{diagnosis_id}/status','/api/v1/admissions/{admission_id}/allergy-intolerances','/api/v1/allergy-intolerances/{allergy_id}/status','/api/v1/allergy-intolerances/{allergy_id}/reactions','/api/v1/admissions/{admission_id}/allergy-review-assertions','/api/v1/admissions/{admission_id}/food-safety-allergies','/api/v1/medication-catalog','/api/v1/medication-catalog/match','/api/v1/admissions/{admission_id}/treatments','/api/v1/admissions/{admission_id}/treatments/bulk','/api/v1/admission-treatments/{treatment_id}','/api/v1/admissions/{admission_id}/treatments/review','/api/v1/admissions/{admission_id}/treatment-impact-summary'}; assert expected<=set(p),expected-set(p); assert not any('audit_logs' in path for path in p); print('OpenAPI clinical contracts valid')"
+    python -c "from app.main import app; p=app.openapi()['paths']; expected={'/api/v1/admissions/{admission_id}/nutrition-care-encounters','/api/v1/nutrition-care-encounters/{encounter_id}','/api/v1/admissions/{admission_id}/nutrition-latest','/api/v1/admissions/{admission_id}/clinical-context','/api/v1/admissions/{admission_id}/allergy-intolerances','/api/v1/admissions/{admission_id}/treatments','/api/v1/admissions/{admission_id}/nutrition-prescription-workspace','/api/v1/admissions/{admission_id}/nutrition-prescription-orders','/api/v1/nutrition-prescription-orders/{order_id}','/api/v1/nutrition-prescription-orders/{order_id}/validate','/api/v1/nutrition-prescription-orders/{order_id}/activate','/api/v1/nutrition-prescription-orders/{order_id}/suspend','/api/v1/nutrition-prescription-orders/{order_id}/clone','/api/v1/enteral-formula-catalog','/api/v1/nutrition-prescription-settings'}; assert expected<=set(p),expected-set(p); assert not any('audit_logs' in path for path in p); print('OpenAPI clinical contracts valid')"
     Assert-NativeSuccess "OpenAPI"
 
     Write-Host "[5/12] metadata tables, constraints, precision and indexes"
-    python -c "from app.db.base import get_metadata; m=get_metadata(); expected={'nutritional_care_encounters','nutritional_assessments','nutritional_clinical_context_items','nutritional_anthropometric_measurements','nutritional_measurement_sessions','nutritional_measurement_values','nutritional_screenings','nutritional_screening_answers','nutritional_requirement_calculations','nutritional_diagnoses','nutritional_prescriptions','nutritional_prescription_meal_times','nutritional_monitoring_records','nutritional_intake_records','nutritional_lab_observations','nutritional_alerts','patient_conditions','patient_condition_status_history','admission_diagnoses','admission_diagnosis_status_history','admission_clinical_history_versions','patient_allergy_intolerances','allergy_intolerance_reactions','allergy_intolerance_status_history','patient_allergy_review_assertions','medication_catalog_items','admission_treatments','admission_treatment_versions','admission_treatment_reviews'}; assert expected<=set(m.tables),expected-set(m.tables); e=m.tables['nutritional_care_encounters']; assert {'admission_id','encounter_datetime','status','version'}<=set(e.c.keys()); assert any(i.name=='ix_nutrition_encounter_admission_datetime_status' for i in e.indexes); assert str(m.tables['admission_treatment_versions'].c.dose_value.type).startswith('NUMERIC'); print('Phase 9.7 metadata valid')"
+    python -c "from app.db.base import get_metadata; m=get_metadata(); expected={'nutritional_care_encounters','nutritional_requirement_calculations','nutritional_prescriptions','medication_catalog_items','admission_treatments','enteral_formula_catalog_items','nutrition_prescription_settings','nutrition_prescription_orders','nutrition_prescription_order_meals','nutrition_prescription_supplements','nutrition_prescription_progressions','nutrition_prescription_monitoring'}; assert expected<=set(m.tables),expected-set(m.tables); assert str(m.tables['nutrition_prescription_orders'].c.prescribed_energy_kcal.type).startswith('NUMERIC'); assert any(i.name=='uq_prescription_order_one_active_per_admission' for i in m.tables['nutrition_prescription_orders'].indexes); print('Phase 9.8 metadata valid')"
     Assert-NativeSuccess "Metadata"
 
     Write-Host "[6/12] isolated migration upgrade, downgrade and re-upgrade"
@@ -44,7 +44,7 @@ try {
     Push-Location "apps/backend"
     $heads = @(alembic heads)
     Assert-NativeSuccess "Alembic heads"
-    if ($heads.Count -ne 1 -or $heads[0] -notmatch "20260826_0016") { throw "Unexpected Alembic heads: $heads" }
+    if ($heads.Count -ne 1 -or $heads[0] -notmatch "20260826_0017") { throw "Unexpected Alembic heads: $heads" }
     Pop-Location
 
     Write-Host "[8/12] idempotent seeds without clinical fixtures"
@@ -53,7 +53,7 @@ try {
 
     Write-Host "[9/12] clinical algorithm tests"
     Push-Location "apps/backend"
-    python -m pytest tests/test_nutrition.py tests/test_clinical_context.py tests/test_allergies.py tests/test_treatments.py -q
+    python -m pytest tests/test_nutrition.py tests/test_clinical_context.py tests/test_allergies.py tests/test_treatments.py tests/test_prescription_orders.py -q
     Assert-NativeSuccess "Clinical algorithms"
     Pop-Location
 
@@ -82,5 +82,5 @@ try {
         docker compose -f infra/docker-compose.yml --env-file infra/.env.example config | Out-Null
         Assert-NativeSuccess "Docker Compose"
     } else { Write-Host "Docker daemon unavailable; Compose runtime skipped." }
-    Write-Host "Phase 9.7 verification completed."
+    Write-Host "Phase 9.8 verification completed."
 } finally { Pop-Location }

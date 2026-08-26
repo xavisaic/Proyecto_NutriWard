@@ -1,4 +1,4 @@
-# Backend (Fase 9.6)
+# Backend (Fase 9.8)
 
 La ficha conserva las proyecciones administrativas de Fase 8 y agrega una API clínica
 separada, autorizada sólo para `nutricionista` y `jefatura`:
@@ -21,6 +21,12 @@ separada, autorizada sólo para `nutricionista` y `jefatura`:
 - `POST /api/v1/allergy-intolerances/{allergy_id}/reactions`
 - `POST /api/v1/admissions/{admission_id}/allergy-review-assertions`
 - `GET /api/v1/admissions/{admission_id}/food-safety-allergies`
+- `GET /api/v1/admissions/{admission_id}/nutrition-prescription-workspace`
+- `POST /api/v1/admissions/{admission_id}/nutrition-prescription-orders`
+- `PATCH /api/v1/nutrition-prescription-orders/{order_id}`
+- `POST /api/v1/nutrition-prescription-orders/{order_id}/validate|activate|suspend|clone`
+- `POST /api/v1/enteral-formula-catalog`
+- `PUT /api/v1/nutrition-prescription-settings`
 
 La API clínica no expone `audit_logs`, exige CSRF en mutaciones y bloquea administrador y
 Alimentación con `403`. La única excepción es la proyección de seguridad alimentaria de
@@ -28,6 +34,7 @@ solo lectura: Alimentación puede consultar sustancia, tipo, criticidad y manife
 alimentarias activas, sin fuentes, notas, actores ni alergias farmacológicas. La cabeza
 Alembic es `20260817_0014`; el modelo se documenta en
 `docs/planning/FASE-9-FICHA-NUTRICIONAL-CLINICA.md`,
+`docs/planning/FASE-9.8-PRESCRIPCION-NUTRICIONAL.md`,
 `docs/planning/FASE-9.3-EVOLUCION-NUTRICIONAL-MODULAR.md` y
 `docs/planning/FASE-9.4-HISTORIA-EPISODIO-ACTUAL.md`. Los protocolos de antropometría
 avanzada se detallan en `docs/planning/FASE-9.5-ANTROPOMETRIA-AVANZADA.md`.

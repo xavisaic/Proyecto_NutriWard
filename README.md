@@ -1,6 +1,6 @@
 # Proyecto NutriWard
 
-Base técnica completa hasta Fase 9.6 para una plataforma web de gestión nutricional clínica.
+Base técnica completa hasta Fase 9.8 para una plataforma web de gestión nutricional clínica.
 
 Fase 9 incorpora la ficha nutricional clínica estructurada por hospitalización, con
 atenciones versionadas, evaluación, antropometría, tamizajes, requerimientos, PES,
@@ -10,6 +10,11 @@ prescripción, ingesta, exámenes y proyección clínica separada. Ver
 Fase 9.1 agrega diagnósticos médicos múltiples por hospitalización y antecedentes mórbidos
 longitudinales, con pegado masivo revisable, estados versionados e historial sin borrado.
 Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
+
+Fase 9.8 convierte Prescripción en un espacio de trabajo operativo con estrategias oral y
+enteral, suplementos, catálogo de fórmulas, cálculo de cobertura, receta, validación,
+activación, suspensión e historial inmutable. Ver
+`docs/planning/FASE-9.8-PRESCRIPCION-NUTRICIONAL.md`.
 
 ## Stack
 
@@ -71,6 +76,8 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 - NRS-2002 guiado con tamizaje inicial, criterios nutricionales, gravedad confirmada,
   edad trazable y puntaje provisional en tiempo real recalculado por el backend.
 - Requerimientos trazables, diagnósticos PES, prescripción, ingesta y exámenes manuales.
+- Prescripción nutricional operativa multivía con metas congeladas, aportes calculados,
+  catálogo enteral versionado, suplementos, monitoreo, receta e historial de versiones.
 - Diagnósticos médicos múltiples por episodio y antecedentes mórbidos reutilizables.
 - Historia narrativa del episodio actual, vinculada a la hospitalización y conservada en
   versiones inmutables con fuente, autor y motivo de actualización.

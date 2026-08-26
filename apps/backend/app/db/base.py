@@ -47,6 +47,15 @@ from app.models.patient_transfer_request import PatientTransferRequest  # noqa: 
 from app.models.patient_transfer_request_status_history import (  # noqa: F401
     PatientTransferRequestStatusHistory,
 )
+from app.models.prescription_order import (  # noqa: F401
+    EnteralFormulaCatalogItem,
+    NutritionPrescriptionMeal,
+    NutritionPrescriptionMonitoring,
+    NutritionPrescriptionOrder,
+    NutritionPrescriptionProgression,
+    NutritionPrescriptionSetting,
+    NutritionPrescriptionSupplement,
+)
 from app.models.role import Role  # noqa: F401
 from app.models.room import Room  # noqa: F401
 from app.models.treatment import (  # noqa: F401

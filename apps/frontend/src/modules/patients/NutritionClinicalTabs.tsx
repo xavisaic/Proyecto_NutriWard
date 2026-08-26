@@ -41,6 +41,7 @@ import {
   NutritionLatest,
   NutritionProjectionList,
 } from '../../shared/services/api'
+import { NutritionPrescriptionOrderTab } from './NutritionPrescriptionOrderTab'
 
 type ClinicalTab = 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'
 type EvolutionMode = 'initial' | 'follow_up' | 'specific'
@@ -1100,7 +1101,7 @@ export function NutritionSummaryCard({ admissionId }: { admissionId: string }) {
 export function NutritionClinicalTab({ tab, admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { tab: ClinicalTab, admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, onChanged: () => void }) {
   if (tab === 'care') return <CareTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onChanged={onChanged} />
   if (tab === 'assessment') return <AssessmentTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
-  if (tab === 'prescription') return <PrescriptionTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  if (tab === 'prescription') return <NutritionPrescriptionOrderTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   if (tab === 'intake') return <IntakeTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   return <LabsTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
 }
