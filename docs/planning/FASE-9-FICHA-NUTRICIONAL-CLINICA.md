@@ -175,6 +175,13 @@ llamadas clínicas para ellos.
 - `GET /api/v1/admissions/{admission_id}/nutrition-intake`
 - `GET /api/v1/admissions/{admission_id}/nutrition-labs`
 - `GET /api/v1/nutrition-catalogs`
+- `GET /api/v1/medication-catalog`
+- `POST /api/v1/medication-catalog/match`
+- `GET|POST /api/v1/admissions/{admission_id}/treatments`
+- `POST /api/v1/admissions/{admission_id}/treatments/bulk`
+- `GET|PATCH /api/v1/admission-treatments/{treatment_id}`
+- `POST /api/v1/admissions/{admission_id}/treatments/review`
+- `GET /api/v1/admissions/{admission_id}/treatment-impact-summary`
 
 `nutrition-latest` sólo usa atenciones finalizadas/correctivas y permanece separado del
 `chart-summary` administrativo de Fase 8. Desde Fase 9.3 resuelve el último dato válido de
@@ -206,6 +213,24 @@ Se contemplan carga, vacío, error/reintento, `403`, `404`, `409`, episodio hist
 cambios sin guardar. Las solicitudes usan secuencia para descartar respuestas obsoletas al
 cambiar rápidamente de hospitalización. Se reutilizan MUI, componentes compartidos y
 tokens de tema claro/oscuro; no se introducen colores clínicos literales.
+
+### Tratamientos activos (Fase 9.7)
+
+La ficha incorpora una conciliación terapéutica vinculada al episodio. Cada tratamiento
+mantiene identidad estable, versiones inmutables, fuente, observación, verificación y
+estado de orden separados. La pestaña diferencia información nunca revisada de una
+conciliación sin hallazgos, conserva episodios históricos en sólo lectura y muestra un panel
+informativo de impacto nutricional.
+
+La captura se asiste con una instantánea versionada de 440 presentaciones del arsenal:
+permite buscar por código/nombre o pegar una lista. Las coincidencias ambiguas requieren
+confirmación y el alta masiva es atómica. Los datos de infusión aparecen sólo para perfiles
+intravenosos; el volumen estimado y el volumen informado permanecen separados.
+
+El aporte consignado desde una receta se denomina prescrito o potencial; no se presenta
+como administrado ni real. Las reglas automáticas explican sus datos de origen y no emiten
+conductas médicas. Ver `FASE-9.7-TRATAMIENTOS-ACTIVOS.md` y
+`ADR-015-treatment-reconciliation.md`.
 
 ## Decisiones clínicas y referencias
 
@@ -239,5 +264,6 @@ Referencias directas:
 No se registran cuerpos clínicos en auditoría ni logs, no se exponen `audit_logs`, y la API
 usa nombres de presentación. Permanecen fuera de alcance: integración TrakCare/HL7/FHIR,
 curvas calculadas, raciones, cocina, minutas operacionales, etiquetas/Zebra, inventario,
-insulina o farmacología, formulación enteral/parenteral avanzada, bombas, balance
+prescripción farmacológica, registro oficial de administración, formulación
+enteral/parenteral avanzada, bombas, balance
 nitrogenado, hoja horaria completa, Bitácora, WebSockets, push y firma electrónica legal.

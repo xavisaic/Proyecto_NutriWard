@@ -8,6 +8,10 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import engine
+from app.medication_catalog_2025 import (
+    MEDICATION_CATALOG_2025,
+    SOURCE_VERSION as MEDICATION_CATALOG_SOURCE_VERSION,
+)
 from app.models.care_unit import CareUnit
 from app.models.care_unit_layout_position import CareUnitLayoutPosition
 from app.models.admission import Admission
@@ -23,9 +27,11 @@ from app.models.patient_transfer_request_status_history import (
 )
 from app.models.role import Role
 from app.models.room import Room
+from app.models.treatment import MedicationCatalogItem
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.audit_service import record_audit
+from app.services.medication_catalog_service import normalize_catalog_text
 from app.services.user_service import normalize_email
 
 ROLE_DEFINITIONS = {
@@ -139,6 +145,28 @@ ADMISSION_DEFINITIONS = (
 
 
 def seed_database(session: Session) -> None:
+    existing_catalog = {
+        row.code: row
+        for row in session.exec(select(MedicationCatalogItem)).all()
+    }
+    for definition in MEDICATION_CATALOG_2025:
+        values = {
+            **definition,
+            "normalized_name": normalize_catalog_text(definition["display_name"]),
+            "source_version": MEDICATION_CATALOG_SOURCE_VERSION,
+            "is_active": True,
+        }
+        row = existing_catalog.get(definition["code"])
+        if row is None:
+            row = MedicationCatalogItem(**values)
+            session.add(row)
+            existing_catalog[row.code] = row
+        else:
+            for field, value in values.items():
+                setattr(row, field, value)
+            session.add(row)
+    session.flush()
+
     roles: dict[str, Role] = {}
     users: dict[str, User] = {}
     for name, description in ROLE_DEFINITIONS.items():

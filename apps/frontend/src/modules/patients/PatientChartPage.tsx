@@ -51,10 +51,12 @@ import { MovePatientDialog } from '../transfers/Transfers'
 import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
 import { ClinicalContextSummaryCard, ClinicalContextTab } from './ClinicalContextTab'
 import { AllergySummaryAlert } from './AllergyIntoleranceSection'
+import { ActiveTreatmentsTab } from './ActiveTreatmentsTab'
 
 const CANONICAL_TABS = [
   'summary',
   'clinical-context',
+  'treatments',
   'care',
   'assessment',
   'prescription',
@@ -72,6 +74,7 @@ type ChartTab = typeof CANONICAL_TABS[number]
 const TAB_LABELS: Record<ChartTab, string> = {
   summary: 'Resumen',
   'clinical-context': 'Diagnósticos y antecedentes',
+  treatments: 'Tratamientos activos',
   care: 'Evolución nutricional',
   assessment: 'Evaluación',
   prescription: 'Prescripción',
@@ -85,11 +88,11 @@ const TAB_LABELS: Record<ChartTab, string> = {
 }
 
 const CLINICAL_TABS = new Set<ChartTab>([
-  'clinical-context', 'care', 'assessment', 'prescription', 'intake', 'labs',
+  'clinical-context', 'treatments', 'care', 'assessment', 'prescription', 'intake', 'labs',
   'nitrogen-balance', 'hourly-sheet', 'logbook',
 ])
 
-const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 'movements' | 'history'>, { title: string; description: string }> = {
+const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 'treatments' | 'movements' | 'history'>, { title: string; description: string }> = {
   care: {
     title: 'Evolución nutricional',
     description: 'Una atención será una instancia temporal de trabajo nutricional vinculada al episodio. Podrá agrupar evaluaciones, cambios de prescripción, revisiones de ingesta o notas relacionadas. No implica presencia física y no registra modalidad presencial o remota.',
@@ -572,6 +575,13 @@ export function PatientChartPage({
           historical={admission.is_historical}
           csrfToken={csrfToken}
           onChanged={() => void load()}
+        />
+      ) : null}
+      {canReadClinical && admission && tab === 'treatments' ? (
+        <ActiveTreatmentsTab
+          admissionId={admission.id}
+          historical={admission.is_historical}
+          csrfToken={csrfToken}
         />
       ) : null}
       {canReadClinical && admission && ['care', 'assessment', 'prescription', 'intake', 'labs'].includes(tab) ? (

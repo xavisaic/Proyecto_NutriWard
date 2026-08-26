@@ -49,6 +49,12 @@ from app.models.patient_transfer_request_status_history import (  # noqa: F401
 )
 from app.models.role import Role  # noqa: F401
 from app.models.room import Room  # noqa: F401
+from app.models.treatment import (  # noqa: F401
+    AdmissionTreatment,
+    AdmissionTreatmentReview,
+    AdmissionTreatmentVersion,
+    MedicationCatalogItem,
+)
 from app.models.user import User  # noqa: F401
 from app.models.user_role import UserRole  # noqa: F401
 

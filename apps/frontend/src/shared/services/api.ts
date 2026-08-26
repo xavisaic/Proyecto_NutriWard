@@ -606,6 +606,127 @@ export interface FoodSafetyAllergyProjection {
   }>
 }
 
+export interface MedicationCatalogItem {
+  code: string
+  alternate_code: string | null
+  display_name: string
+  route: string | null
+  available_inpatient: boolean
+  available_outpatient: boolean
+  restriction: string | null
+  clinical_profile: 'standard' | 'intravenous' | 'continuous_infusion'
+  default_category: string
+  source_version: string
+}
+
+export interface MedicationCatalogList {
+  items: MedicationCatalogItem[]
+  total: number
+}
+
+export interface MedicationCatalogMatchItem {
+  source_text: string
+  status: 'matched' | 'ambiguous' | 'unmatched'
+  match: MedicationCatalogItem | null
+  suggestions: MedicationCatalogItem[]
+}
+
+export interface MedicationCatalogMatchResponse {
+  items: MedicationCatalogMatchItem[]
+}
+
+export interface TreatmentVersion {
+  id: string
+  treatment_id: string
+  version: number
+  previous_version_id: string | null
+  medication_catalog_code: string | null
+  raw_medication_text: string | null
+  name: string
+  category: string
+  prescription_text: string
+  concentration_value: number | string | null
+  concentration_unit: string | null
+  diluent_volume_ml: number | string | null
+  dose_value: number | string | null
+  dose_unit: string | null
+  route: string | null
+  modality: string | null
+  frequency: string | null
+  rate_value: number | string | null
+  rate_unit: string | null
+  infusion_duration_hours: number | string | null
+  administered_volume_ml: number | string | null
+  estimated_volume_ml: number | string | null
+  medication_catalog: MedicationCatalogItem | null
+  prescribed_energy_kcal_day: number | string | null
+  starts_at: string | null
+  planned_ends_at: string | null
+  indication: string | null
+  order_status: string
+  source_type: string
+  source_reference: string | null
+  observed_at: string
+  verification_status: string
+  verified_at: string | null
+  verified_by_user_id: string | null
+  verifier_name: string | null
+  nutritional_note: string | null
+  change_reason: string
+  created_by_user_id: string
+  author_name: string
+  created_at: string
+}
+
+export interface AdmissionTreatment {
+  id: string
+  admission_id: string
+  kind: 'medication' | 'nutritional_support'
+  created_by_user_id: string
+  created_at: string
+  current: TreatmentVersion
+  history: TreatmentVersion[]
+}
+
+export interface TreatmentReview {
+  id: string
+  admission_id: string
+  assertion: 'reviewed_with_findings' | 'no_known' | 'information_unavailable'
+  source_type: string
+  note: string | null
+  recorded_by_user_id: string
+  author_name: string
+  recorded_at: string
+}
+
+export interface TreatmentContext {
+  admission_id: string
+  review_status: 'not_reviewed' | 'reviewed_with_findings' | 'no_known' | 'information_unavailable'
+  latest_review: TreatmentReview | null
+  items: AdmissionTreatment[]
+  counts: {
+    active: number
+    on_hold: number
+    pending_verification: number
+    historical: number
+  }
+}
+
+export interface TreatmentImpactSummary {
+  admission_id: string
+  potential_energy_kcal_day: number | string
+  energy_source_count: number
+  items: Array<{
+    treatment_id: string
+    treatment_name: string
+    rule_code: string
+    kind: 'potential_energy' | 'missing_data' | 'consideration'
+    message: string
+    severity: 'info' | 'warning'
+  }>
+  disclaimer: string
+}
+
 export type TransferMode = 'direct' | 'reception_tray'
 export type TransferStatus =
   | 'requested'
