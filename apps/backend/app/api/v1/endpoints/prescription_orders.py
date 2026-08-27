@@ -9,6 +9,8 @@ from app.schemas.prescription_order import (
     FormulaCatalogRead,
     PrescriptionAction,
     PrescriptionClone,
+    PrescriptionDispatchAcknowledge,
+    PrescriptionDispatchCreate,
     PrescriptionOrderCreate,
     PrescriptionOrderRead,
     PrescriptionOrderUpdate,
@@ -19,9 +21,11 @@ from app.schemas.prescription_order import (
 )
 from app.services.prescription_order_service import (
     activate_order,
+    acknowledge_dispatch,
     clone_order,
     create_formula,
     create_order,
+    dispatch_order,
     suspend_order,
     update_order,
     update_settings,
@@ -70,6 +74,16 @@ def post_suspend(order_id: uuid.UUID, payload: PrescriptionSuspension, current: 
 @router.post("/nutrition-prescription-orders/{order_id}/clone", response_model=PrescriptionOrderRead, status_code=status.HTTP_201_CREATED)
 def post_clone(order_id: uuid.UUID, payload: PrescriptionClone, current: ClinicalEditor, session: DatabaseSession) -> PrescriptionOrderRead:
     return clone_order(session, order_id, payload, current.user.id)
+
+
+@router.post("/nutrition-prescription-orders/{order_id}/dispatch", response_model=PrescriptionOrderRead)
+def post_dispatch(order_id: uuid.UUID, payload: PrescriptionDispatchCreate, current: ClinicalEditor, session: DatabaseSession) -> PrescriptionOrderRead:
+    return dispatch_order(session, order_id, payload, current.user.id)
+
+
+@router.post("/nutrition-prescription-dispatches/{dispatch_id}/acknowledge")
+def post_acknowledge_dispatch(dispatch_id: uuid.UUID, payload: PrescriptionDispatchAcknowledge, current: CatalogEditor, session: DatabaseSession) -> dict:
+    return acknowledge_dispatch(session, dispatch_id, payload, current.user.id)
 
 
 @router.post("/enteral-formula-catalog", response_model=FormulaCatalogRead, status_code=status.HTTP_201_CREATED)

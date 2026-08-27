@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -6,10 +8,13 @@ from sqlalchemy import delete, func
 from sqlmodel import Session, select
 
 from app.models.admission import Admission
-from app.models.nutrition import NutritionalCareEncounter, NutritionalRequirementCalculation
+from app.models.nutrition import NutritionalCareEncounter, NutritionalLabObservation, NutritionalRequirementCalculation
 from app.models.prescription_order import (
     EnteralFormulaCatalogItem,
     NutritionPrescriptionMeal,
+    NutritionPrescriptionElectrolyte,
+    NutritionPrescriptionNonNutritionalContribution,
+    NutritionPrescriptionDispatch,
     NutritionPrescriptionMonitoring,
     NutritionPrescriptionOrder,
     NutritionPrescriptionProgression,
@@ -17,16 +22,20 @@ from app.models.prescription_order import (
     NutritionPrescriptionSupplement,
 )
 from app.models.user import User
+from app.models.treatment import AdmissionTreatment
 from app.schemas.prescription_order import (
     FormulaCatalogCreate,
     PrescriptionAction,
     PrescriptionClone,
+    PrescriptionDispatchAcknowledge,
+    PrescriptionDispatchCreate,
     PrescriptionOrderCreate,
     PrescriptionOrderUpdate,
     PrescriptionSettingsUpdate,
     PrescriptionSuspension,
 )
 from app.services.audit_service import record_audit
+from app.services.treatment_service import read_treatment_context
 from app.models.common import utc_now
 
 
@@ -36,10 +45,13 @@ CHILD_MODELS = (
     NutritionPrescriptionSupplement,
     NutritionPrescriptionProgression,
     NutritionPrescriptionMonitoring,
+    NutritionPrescriptionElectrolyte,
+    NutritionPrescriptionNonNutritionalContribution,
 )
-NESTED_FIELDS = {"meals", "supplements", "progressions", "monitoring"}
+NESTED_FIELDS = {"meals", "supplements", "progressions", "monitoring", "electrolytes", "non_nutritional_contributions"}
 DIFF_FIELDS = {
     "oral_enabled": "Alimentación oral", "enteral_enabled": "Nutrición enteral",
+    "parenteral_enabled": "Nutrición parenteral",
     "fasting_enabled": "Régimen cero", "energy_goal_kcal": "Meta energética",
     "protein_goal_g": "Meta proteica", "carbohydrate_goal_g": "Meta de carbohidratos",
     "lipid_goal_g": "Meta de lípidos", "fluid_goal_ml": "Meta de volumen",
@@ -50,6 +62,9 @@ DIFF_FIELDS = {
     "enteral_modality": "Modalidad enteral", "enteral_rate_ml_h": "Velocidad enteral",
     "enteral_effective_hours": "Horas efectivas", "water_flush_ml": "Volumen de lavado",
     "water_flush_every_hours": "Frecuencia de lavado", "suggested_reassessment_at": "Reevaluación",
+    "parenteral_access": "Acceso parenteral", "parenteral_solution_type": "Tipo de mezcla parenteral",
+    "parenteral_total_volume_ml": "Volumen parenteral", "parenteral_infusion_hours": "Horas de infusión parenteral",
+    "amino_acids_g": "Aminoácidos", "dextrose_g": "Dextrosa", "parenteral_lipid_g": "Lípidos parenterales",
 }
 
 
@@ -121,13 +136,18 @@ def _classify(value: Decimal, goal: Decimal | None, settings: NutritionPrescript
     return percent, "red"
 
 
-def _coverage(row: NutritionPrescriptionOrder, settings: NutritionPrescriptionSetting) -> list[dict]:
+def _coverage(row: NutritionPrescriptionOrder, settings: NutritionPrescriptionSetting, *, total_real: bool = True) -> list[dict]:
+    values = (
+        (row.total_real_energy_kcal, row.total_real_protein_g, row.total_real_carbohydrate_g, row.total_real_lipid_g, row.total_real_fluid_ml)
+        if total_real else
+        (row.prescribed_energy_kcal, row.prescribed_protein_g, row.prescribed_carbohydrate_g, row.prescribed_lipid_g, row.prescribed_fluid_ml)
+    )
     metrics = [
-        ("energy", "Energía", row.energy_goal_kcal, row.prescribed_energy_kcal, "kcal"),
-        ("protein", "Proteínas", row.protein_goal_g, row.prescribed_protein_g, "g"),
-        ("carbohydrate", "Carbohidratos", row.carbohydrate_goal_g, row.prescribed_carbohydrate_g, "g"),
-        ("lipid", "Lípidos", row.lipid_goal_g, row.prescribed_lipid_g, "g"),
-        ("fluid", "Volumen", row.fluid_goal_ml, row.prescribed_fluid_ml, "mL"),
+        ("energy", "Energía", row.energy_goal_kcal, values[0], "kcal"),
+        ("protein", "Proteínas", row.protein_goal_g, values[1], "g"),
+        ("carbohydrate", "Carbohidratos", row.carbohydrate_goal_g, values[2], "g"),
+        ("lipid", "Lípidos", row.lipid_goal_g, values[3], "g"),
+        ("fluid", "Volumen", row.fluid_goal_ml, values[4], "mL"),
     ]
     result = []
     for code, label, goal, prescribed, unit in metrics:
@@ -145,17 +165,31 @@ def _coverage(row: NutritionPrescriptionOrder, settings: NutritionPrescriptionSe
     return result
 
 
-def _alerts(row: NutritionPrescriptionOrder, coverage: list[dict]) -> list[dict]:
+def _alerts(session: Session, row: NutritionPrescriptionOrder, coverage: list[dict], settings: NutritionPrescriptionSetting) -> list[dict]:
     alerts: list[dict] = []
-    if not (row.oral_enabled or row.enteral_enabled or row.fasting_enabled):
+    if not (row.oral_enabled or row.enteral_enabled or row.parenteral_enabled or row.fasting_enabled):
         alerts.append({"severity": "warning", "code": "strategy_missing", "message": "Seleccione al menos una estrategia nutricional."})
     if row.enteral_enabled and row.enteral_formula_id is None:
         alerts.append({"severity": "warning", "code": "formula_missing", "message": "La estrategia enteral no tiene una fórmula seleccionada."})
     for metric in coverage:
         if metric["color"] == "red" and metric["goal"] is not None:
             alerts.append({"severity": "error", "code": f"coverage_{metric['code']}", "message": f"{metric['label']}: aporte fuera del rango institucional de apoyo."})
-    if row.fluid_goal_kind == "maximum" and row.fluid_goal_ml and row.prescribed_fluid_ml > row.fluid_goal_ml:
+    if row.fluid_goal_kind == "maximum" and row.fluid_goal_ml and row.total_real_fluid_ml > row.fluid_goal_ml:
         alerts.append({"severity": "error", "code": "fluid_maximum", "message": "El volumen prescrito supera el máximo documentado."})
+    if row.parenteral_enabled:
+        if row.parenteral_access == "peripheral" and row.osmolarity_mosm_l and row.osmolarity_mosm_l > settings.peripheral_osmolarity_max_mosm_l:
+            alerts.append({"severity": "error", "code": "peripheral_osmolarity", "message": "La osmolaridad supera el umbral institucional configurado para acceso periférico."})
+        if row.parenteral_gir_mg_kg_min and row.parenteral_gir_mg_kg_min > settings.gir_max_mg_kg_min:
+            alerts.append({"severity": "error", "code": "gir_high", "message": "La velocidad de infusión de glucosa supera el umbral institucional configurado."})
+        if row.calculation_weight_kg and row.parenteral_lipid_g / row.calculation_weight_kg > settings.lipid_max_g_kg_day:
+            alerts.append({"severity": "error", "code": "lipid_high", "message": "La dosis lipídica supera el umbral institucional configurado."})
+        if row.refeeding_risk_confirmed:
+            monitoring = " ".join(item.parameter.lower() for item in _children(session, NutritionPrescriptionMonitoring, row.id))
+            missing = [name for name in ("potasio", "fósforo", "magnesio") if name not in monitoring]
+            if missing:
+                alerts.append({"severity": "warning", "code": "refeeding_monitoring", "message": "Riesgo de realimentación: falta explicitar monitoreo de " + ", ".join(missing) + "."})
+    if any(item.verification_status != "confirmed" for item in _children(session, NutritionPrescriptionNonNutritionalContribution, row.id)):
+        alerts.append({"severity": "warning", "code": "contribution_unverified", "message": "Hay aportes no nutricionales sugeridos pendientes de confirmación clínica."})
     return alerts
 
 
@@ -170,9 +204,13 @@ def _serialize(session: Session, row: NutritionPrescriptionOrder) -> dict:
         supplements=[_dump(item) for item in _children(session, NutritionPrescriptionSupplement, row.id)],
         progressions=[_dump(item) for item in _children(session, NutritionPrescriptionProgression, row.id)],
         monitoring=[_dump(item) for item in _children(session, NutritionPrescriptionMonitoring, row.id)],
+        electrolytes=[_dump(item) for item in _children(session, NutritionPrescriptionElectrolyte, row.id)],
+        non_nutritional_contributions=[_dump(item) for item in _children(session, NutritionPrescriptionNonNutritionalContribution, row.id)],
+        dispatches=[_dump(item) for item in _children(session, NutritionPrescriptionDispatch, row.id)],
     )
-    result["coverage"] = _coverage(row, settings)
-    result["alerts"] = _alerts(row, result["coverage"])
+    result["coverage"] = _coverage(row, settings, total_real=True)
+    result["nutritional_coverage"] = _coverage(row, settings, total_real=False)
+    result["alerts"] = _alerts(session, row, result["coverage"], settings)
     changes: list[dict] = []
     if row.supersedes_order_id:
         previous = session.get(NutritionPrescriptionOrder, row.supersedes_order_id)
@@ -186,6 +224,8 @@ def _serialize(session: Session, row: NutritionPrescriptionOrder) -> dict:
                 (NutritionPrescriptionSupplement, "Suplementos y módulos"),
                 (NutritionPrescriptionProgression, "Progresión enteral"),
                 (NutritionPrescriptionMonitoring, "Monitoreo"),
+                (NutritionPrescriptionElectrolyte, "Electrolitos parenterales"),
+                (NutritionPrescriptionNonNutritionalContribution, "Aportes no nutricionales"),
             )
             for model, label in child_labels:
                 before_count = len(_children(session, model, previous.id))
@@ -208,6 +248,14 @@ def _replace_children(session: Session, row: NutritionPrescriptionOrder, payload
         session.add(NutritionPrescriptionProgression(order_id=row.id, **item.model_dump()))
     for item in payload.monitoring:
         session.add(NutritionPrescriptionMonitoring(order_id=row.id, **item.model_dump()))
+    for item in payload.electrolytes:
+        session.add(NutritionPrescriptionElectrolyte(order_id=row.id, **item.model_dump()))
+    for item in payload.non_nutritional_contributions:
+        if item.source_treatment_id:
+            treatment = session.get(AdmissionTreatment, item.source_treatment_id)
+            if treatment is None or treatment.admission_id != row.admission_id:
+                raise _invalid("El tratamiento asociado al aporte no pertenece a esta hospitalización.")
+        session.add(NutritionPrescriptionNonNutritionalContribution(order_id=row.id, **item.model_dump()))
 
 
 def _recipe(session: Session, row: NutritionPrescriptionOrder) -> str:
@@ -234,6 +282,20 @@ def _recipe(session: Session, row: NutritionPrescriptionOrder) -> str:
         if row.water_flush_ml and row.water_flush_every_hours:
             text += f" Lavados de {row.water_flush_ml:g} mL cada {row.water_flush_every_hours:g} horas."
         parts.append(text)
+    if row.parenteral_enabled:
+        text = f"Nutrición parenteral {row.parenteral_solution_type or 'por confirmar'}"
+        if row.parenteral_solution_name:
+            text += f" ({row.parenteral_solution_name})"
+        text += f" por acceso {row.parenteral_access or 'por confirmar'}"
+        if row.parenteral_total_volume_ml and row.parenteral_infusion_hours:
+            text += f", {row.parenteral_total_volume_ml:g} mL en {row.parenteral_infusion_hours:g} h ({row.parenteral_rate_ml_h:g} mL/h)"
+        text += f". Aminoácidos {row.amino_acids_g:g} g, dextrosa {row.dextrose_g:g} g y lípidos {row.parenteral_lipid_g:g} g."
+        if row.parenteral_gir_mg_kg_min is not None:
+            text += f" GIR {row.parenteral_gir_mg_kg_min:g} mg/kg/min."
+        electrolytes = _children(session, NutritionPrescriptionElectrolyte, row.id)
+        if electrolytes:
+            text += " Electrolitos: " + "; ".join(f"{item.electrolyte_code} {item.amount:g} {item.unit}" for item in electrolytes) + "."
+        parts.append(text)
     supplements = _children(session, NutritionPrescriptionSupplement, row.id)
     for item in supplements:
         dose = f" {item.dose:g} {item.dose_unit}" if item.dose is not None and item.dose_unit else ""
@@ -246,11 +308,14 @@ def _recipe(session: Session, row: NutritionPrescriptionOrder) -> str:
     monitoring = _children(session, NutritionPrescriptionMonitoring, row.id)
     if monitoring:
         parts.append("Monitorear " + "; ".join(f"{item.parameter} {item.frequency}" for item in monitoring) + ".")
-    parts.append(f"Aporte calculado: {row.prescribed_energy_kcal:g} kcal, {row.prescribed_protein_g:g} g de proteína y {row.prescribed_fluid_ml:g} mL de volumen/día.")
+    parts.append(f"Aporte nutricional calculado: {row.prescribed_energy_kcal:g} kcal, {row.prescribed_protein_g:g} g de proteína y {row.prescribed_fluid_ml:g} mL de volumen/día.")
+    if row.non_nutritional_energy_kcal or row.non_nutritional_fluid_ml:
+        parts.append(f"Aporte no nutricional documentado: {row.non_nutritional_energy_kcal:g} kcal y {row.non_nutritional_fluid_ml:g} mL/día. Total real: {row.total_real_energy_kcal:g} kcal y {row.total_real_fluid_ml:g} mL/día.")
     return " ".join(parts)
 
 
 def _recalculate(session: Session, row: NutritionPrescriptionOrder) -> None:
+    settings = _settings(session)
     energy = row.oral_energy_kcal if row.oral_enabled else Decimal(0)
     protein = row.oral_protein_g if row.oral_enabled else Decimal(0)
     carbohydrate = row.oral_carbohydrate_g if row.oral_enabled else Decimal(0)
@@ -272,6 +337,22 @@ def _recalculate(session: Session, row: NutritionPrescriptionOrder) -> None:
     if row.water_flush_ml and row.water_flush_every_hours:
         flush_volume = row.water_flush_ml * (Decimal(24) / row.water_flush_every_hours)
         fluid += flush_volume
+    row.parenteral_rate_ml_h = Decimal(0)
+    row.parenteral_gir_mg_kg_min = None
+    if row.parenteral_enabled:
+        if row.parenteral_total_volume_ml and row.parenteral_infusion_hours:
+            row.parenteral_rate_ml_h = (row.parenteral_total_volume_ml / row.parenteral_infusion_hours).quantize(Q, rounding=ROUND_HALF_UP)
+        if row.dextrose_g and row.calculation_weight_kg and row.parenteral_infusion_hours:
+            row.parenteral_gir_mg_kg_min = (
+                (row.dextrose_g * 1000) / (row.calculation_weight_kg * row.parenteral_infusion_hours * 60)
+            ).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        energy += row.amino_acids_g * settings.amino_acid_kcal_per_g
+        energy += row.dextrose_g * settings.dextrose_kcal_per_g
+        energy += row.parenteral_lipid_g * settings.lipid_kcal_per_g
+        protein += row.amino_acids_g
+        carbohydrate += row.dextrose_g
+        lipid += row.parenteral_lipid_g
+        fluid += row.parenteral_total_volume_ml
     for item in _children(session, NutritionPrescriptionSupplement, row.id):
         energy += item.energy_kcal
         protein += item.protein_g
@@ -283,6 +364,19 @@ def _recalculate(session: Session, row: NutritionPrescriptionOrder) -> None:
     row.prescribed_carbohydrate_g = carbohydrate.quantize(Q, rounding=ROUND_HALF_UP)
     row.prescribed_lipid_g = lipid.quantize(Q, rounding=ROUND_HALF_UP)
     row.prescribed_fluid_ml = fluid.quantize(Q, rounding=ROUND_HALF_UP)
+    contributions = [
+        item for item in _children(session, NutritionPrescriptionNonNutritionalContribution, row.id)
+        if item.verification_status == "confirmed"
+    ]
+    row.non_nutritional_energy_kcal = sum((item.energy_kcal for item in contributions), Decimal(0)).quantize(Q, rounding=ROUND_HALF_UP)
+    row.non_nutritional_carbohydrate_g = sum((item.carbohydrate_g for item in contributions), Decimal(0)).quantize(Q, rounding=ROUND_HALF_UP)
+    row.non_nutritional_lipid_g = sum((item.lipid_g for item in contributions), Decimal(0)).quantize(Q, rounding=ROUND_HALF_UP)
+    row.non_nutritional_fluid_ml = sum((item.fluid_ml for item in contributions), Decimal(0)).quantize(Q, rounding=ROUND_HALF_UP)
+    row.total_real_energy_kcal = row.prescribed_energy_kcal + row.non_nutritional_energy_kcal
+    row.total_real_protein_g = row.prescribed_protein_g
+    row.total_real_carbohydrate_g = row.prescribed_carbohydrate_g + row.non_nutritional_carbohydrate_g
+    row.total_real_lipid_g = row.prescribed_lipid_g + row.non_nutritional_lipid_g
+    row.total_real_fluid_ml = row.prescribed_fluid_ml + row.non_nutritional_fluid_ml
     session.add(row)
     session.flush()
     row.recipe_text = _recipe(session, row)
@@ -343,9 +437,9 @@ def update_order(session: Session, order_id: uuid.UUID, payload: PrescriptionOrd
 
 
 def _validate_content(session: Session, row: NutritionPrescriptionOrder) -> None:
-    if not (row.oral_enabled or row.enteral_enabled or row.fasting_enabled):
+    if not (row.oral_enabled or row.enteral_enabled or row.parenteral_enabled or row.fasting_enabled):
         raise _invalid("Seleccione una estrategia antes de validar.")
-    if row.fasting_enabled and (row.oral_enabled or row.enteral_enabled or _children(session, NutritionPrescriptionSupplement, row.id)):
+    if row.fasting_enabled and (row.oral_enabled or row.enteral_enabled or row.parenteral_enabled or _children(session, NutritionPrescriptionSupplement, row.id)):
         raise _invalid("El régimen cero debe prescribirse sin aportes nutricionales simultáneos.")
     if row.oral_enabled and not row.regimen_type:
         raise _invalid("La estrategia oral requiere un tipo de régimen.")
@@ -354,6 +448,31 @@ def _validate_content(session: Session, row: NutritionPrescriptionOrder) -> None
             raise _invalid("La estrategia enteral requiere una fórmula del catálogo.")
         if not row.enteral_rate_ml_h or not row.enteral_effective_hours:
             raise _invalid("Informe velocidad y horas efectivas de nutrición enteral.")
+    if row.parenteral_enabled:
+        if not row.parenteral_access or not row.parenteral_solution_type:
+            raise _invalid("La estrategia parenteral requiere tipo de acceso y de solución.")
+        if not row.parenteral_total_volume_ml or not row.parenteral_infusion_hours:
+            raise _invalid("Informe volumen y horas de infusión de nutrición parenteral.")
+        if not row.calculation_weight_kg:
+            raise _invalid("Informe el peso utilizado para calcular la nutrición parenteral.")
+    if any(item.verification_status != "confirmed" for item in _children(session, NutritionPrescriptionNonNutritionalContribution, row.id)):
+        raise _invalid("Confirme o elimine los aportes no nutricionales sugeridos antes de validar.")
+
+
+def _content_hash(session: Session, row: NutritionPrescriptionOrder) -> str:
+    excluded = {
+        "status", "lock_version", "effective_from",
+        "signature_kind", "signature_content_hash", "signed_by_user_id", "signed_at",
+        "validated_by_user_id", "validated_at", "activated_by_user_id", "activated_at",
+        "suspended_by_user_id", "suspended_at", "suspension_reason", "updated_at",
+    }
+    content = row.model_dump(mode="json", exclude=excluded)
+    for model in CHILD_MODELS:
+        content[model.__tablename__] = [
+            item.model_dump(mode="json", exclude={"id", "order_id"}) for item in _children(session, model, row.id)
+        ]
+    canonical = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def validate_order(session: Session, order_id: uuid.UUID, payload: PrescriptionAction, actor_id: uuid.UUID, roles: frozenset[str]) -> dict:
@@ -369,6 +488,10 @@ def validate_order(session: Session, order_id: uuid.UUID, payload: PrescriptionA
     row.status = "validated"
     row.validated_by_user_id = actor_id
     row.validated_at = utc_now()
+    row.signature_kind = "internal_clinical_attestation"
+    row.signature_content_hash = _content_hash(session, row)
+    row.signed_by_user_id = actor_id
+    row.signed_at = row.validated_at
     row.updated_at = row.validated_at
     row.lock_version += 1
     session.add(row)
@@ -430,6 +553,10 @@ def clone_order(session: Session, order_id: uuid.UUID, payload: PrescriptionClon
         "created_at", "updated_at", "validated_at", "activated_at", "suspended_at", "suspension_reason",
         "prescribed_energy_kcal", "prescribed_protein_g", "prescribed_carbohydrate_g",
         "prescribed_lipid_g", "prescribed_fluid_ml", "enteral_volume_ml", "recipe_text", "change_reason",
+        "parenteral_rate_ml_h", "parenteral_gir_mg_kg_min",
+        "non_nutritional_energy_kcal", "non_nutritional_carbohydrate_g", "non_nutritional_lipid_g", "non_nutritional_fluid_ml",
+        "total_real_energy_kcal", "total_real_protein_g", "total_real_carbohydrate_g", "total_real_lipid_g", "total_real_fluid_ml",
+        "signature_kind", "signature_content_hash", "signed_by_user_id", "signed_at",
     })
     source_data.update(
         change_reason=payload.reason,
@@ -438,8 +565,81 @@ def clone_order(session: Session, order_id: uuid.UUID, payload: PrescriptionClon
         supplements=[{k: v for k, v in item.model_dump().items() if k not in {"id", "order_id"}} for item in _children(session, NutritionPrescriptionSupplement, source.id)],
         progressions=[{k: v for k, v in item.model_dump().items() if k not in {"id", "order_id"}} for item in _children(session, NutritionPrescriptionProgression, source.id)],
         monitoring=[{k: v for k, v in item.model_dump().items() if k not in {"id", "order_id"}} for item in _children(session, NutritionPrescriptionMonitoring, source.id)],
+        electrolytes=[{k: v for k, v in item.model_dump().items() if k not in {"id", "order_id"}} for item in _children(session, NutritionPrescriptionElectrolyte, source.id)],
+        non_nutritional_contributions=[{k: v for k, v in item.model_dump().items() if k not in {"id", "order_id"}} for item in _children(session, NutritionPrescriptionNonNutritionalContribution, source.id)],
     )
     return create_order(session, source.admission_id, PrescriptionOrderCreate.model_validate(source_data), actor_id)
+
+
+def _treatment_suggestions(session: Session, admission_id: uuid.UUID) -> list[dict]:
+    context = read_treatment_context(session, admission_id)
+    suggestions: list[dict] = []
+    for treatment in context.items:
+        current = treatment.current
+        if current.order_status != "active":
+            continue
+        name = current.name.lower()
+        if current.prescribed_energy_kcal_day is None and not any(token in name for token in ("propofol", "glucos", "dextro", "citrat")):
+            continue
+        source_type = "other"
+        if "propofol" in name:
+            source_type = "propofol"
+        elif "glucos" in name or "dextro" in name:
+            source_type = "dextrose_solution"
+        elif "citrat" in name:
+            source_type = "citrate"
+        elif current.estimated_volume_ml:
+            source_type = "medication_vehicle"
+        suggestions.append({
+            "source_treatment_id": treatment.id,
+            "source_type": source_type,
+            "label": current.name,
+            "energy_kcal": current.prescribed_energy_kcal_day or Decimal(0),
+            "carbohydrate_g": Decimal(0),
+            "lipid_g": Decimal(0),
+            "fluid_ml": current.administered_volume_ml or current.estimated_volume_ml or Decimal(0),
+            "data_origin": "treatment_snapshot",
+            "verification_status": "suggested",
+            "observed_at": current.observed_at,
+            "treatment_verification_status": current.verification_status,
+        })
+    return suggestions
+
+
+def _lab_context(session: Session, admission_id: uuid.UUID) -> list[dict]:
+    rows = list(session.exec(
+        select(NutritionalLabObservation)
+        .where(NutritionalLabObservation.admission_id == admission_id)
+        .order_by(NutritionalLabObservation.sampled_at.desc(), NutritionalLabObservation.id.desc())
+    ).all())
+    relevant = ("triglic", "potas", "fosf", "fósf", "magnes")
+    latest: dict[str, dict] = {}
+    for row in rows:
+        normalized = row.test_name.strip().lower()
+        if any(token in normalized for token in relevant):
+            latest.setdefault(normalized, _dump(row))
+    return list(latest.values())
+
+
+def _add_contextual_alerts(serialized: dict, treatment_suggestions: list[dict], lab_context: list[dict]) -> dict:
+    imported_ids = {
+        str(item["source_treatment_id"])
+        for item in serialized["non_nutritional_contributions"]
+        if item.get("source_treatment_id")
+    }
+    if any(item["source_type"] == "propofol" and str(item["source_treatment_id"]) not in imported_ids for item in treatment_suggestions):
+        serialized["alerts"].append({"severity": "warning", "code": "propofol_not_counted", "message": "Hay propofol activo con aporte potencial aún no incorporado a la prescripción."})
+    for lab in lab_context:
+        if lab.get("flag") not in {"low", "high", "critical"}:
+            continue
+        normalized = lab["test_name"].lower()
+        code = "triglycerides_abnormal" if "triglic" in normalized else "electrolyte_abnormal"
+        serialized["alerts"].append({
+            "severity": "error" if lab.get("flag") == "critical" else "warning",
+            "code": code,
+            "message": f"Laboratorio alterado: {lab['test_name']} {lab['value']} {lab.get('unit') or ''}. Correlacionar clínicamente.",
+        })
+    return serialized
 
 
 def workspace(session: Session, admission_id: uuid.UUID, actor_id: uuid.UUID, roles: frozenset[str]) -> dict:
@@ -453,15 +653,57 @@ def workspace(session: Session, admission_id: uuid.UUID, actor_id: uuid.UUID, ro
     for requirement in requirements:
         latest_by_code.setdefault(requirement.nutrient_code, _dump(requirement))
     formulas = list(session.exec(select(EnteralFormulaCatalogItem).where(EnteralFormulaCatalogItem.is_active == True).order_by(EnteralFormulaCatalogItem.display_name)).all())  # noqa: E712
+    treatment_suggestions = _treatment_suggestions(session, admission_id)
+    lab_context = _lab_context(session, admission_id)
+    serialize = lambda row: _add_contextual_alerts(_serialize(session, row), treatment_suggestions, lab_context)
     return {
         "admission_id": admission_id,
         "requirements": list(latest_by_code.values()),
         "settings": _settings(session),
         "formulas": formulas,
-        "active": _serialize(session, active) if active else None,
-        "drafts": [_serialize(session, row) for row in drafts],
-        "history": [_serialize(session, row) for row in orders if row.status != "draft"],
+        "treatment_suggestions": treatment_suggestions,
+        "lab_context": lab_context,
+        "active": serialize(active) if active else None,
+        "drafts": [serialize(row) for row in drafts],
+        "history": [serialize(row) for row in orders if row.status != "draft"],
     }
+
+
+def dispatch_order(session: Session, order_id: uuid.UUID, payload: PrescriptionDispatchCreate, actor_id: uuid.UUID) -> dict:
+    row = _order(session, order_id)
+    _admission(session, row.admission_id, active=True)
+    if row.status != "active":
+        raise _conflict("Sólo una prescripción activa puede enviarse a un servicio clínico.")
+    if payload.target == "pharmacy" and not row.parenteral_enabled:
+        raise _invalid("El envío a farmacia requiere una estrategia parenteral activa.")
+    dispatch = NutritionPrescriptionDispatch(
+        order_id=row.id,
+        target=payload.target,
+        payload_hash=row.signature_content_hash or _content_hash(session, row),
+        note=payload.note,
+        created_by_user_id=actor_id,
+    )
+    session.add(dispatch)
+    session.flush()
+    record_audit(session, action="nutrition_prescription_dispatch_queued", actor_user_id=actor_id, entity_type="nutrition_prescription_dispatch", entity_id=dispatch.id, admission_id=row.admission_id, after_state={"target": dispatch.target, "channel": dispatch.channel, "status": dispatch.status, "order_version": row.version_number})
+    session.commit()
+    return _serialize(session, row)
+
+
+def acknowledge_dispatch(session: Session, dispatch_id: uuid.UUID, payload: PrescriptionDispatchAcknowledge, actor_id: uuid.UUID) -> dict:
+    dispatch = session.get(NutritionPrescriptionDispatch, dispatch_id)
+    if dispatch is None:
+        raise _not_found("El envío no existe.")
+    if dispatch.status not in {"queued", "sent"}:
+        raise _conflict("El envío ya fue cerrado.")
+    row = _order(session, dispatch.order_id)
+    dispatch.status = "acknowledged"
+    dispatch.external_reference = payload.external_reference
+    dispatch.acknowledged_at = utc_now()
+    session.add(dispatch)
+    record_audit(session, action="nutrition_prescription_dispatch_acknowledged", actor_user_id=actor_id, entity_type="nutrition_prescription_dispatch", entity_id=dispatch.id, admission_id=row.admission_id, after_state={"target": dispatch.target, "status": dispatch.status, "has_external_reference": bool(dispatch.external_reference)})
+    session.commit()
+    return _dump(dispatch)
 
 
 def create_formula(session: Session, payload: FormulaCatalogCreate, actor_id: uuid.UUID) -> EnteralFormulaCatalogItem:

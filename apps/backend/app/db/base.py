@@ -50,6 +50,9 @@ from app.models.patient_transfer_request_status_history import (  # noqa: F401
 from app.models.prescription_order import (  # noqa: F401
     EnteralFormulaCatalogItem,
     NutritionPrescriptionMeal,
+    NutritionPrescriptionElectrolyte,
+    NutritionPrescriptionNonNutritionalContribution,
+    NutritionPrescriptionDispatch,
     NutritionPrescriptionMonitoring,
     NutritionPrescriptionOrder,
     NutritionPrescriptionProgression,

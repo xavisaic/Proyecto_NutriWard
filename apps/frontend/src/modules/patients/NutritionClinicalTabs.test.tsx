@@ -150,7 +150,12 @@ describe('Ficha nutricional clínica', () => {
       admission_id: 'adm-1',
       requirements: [{ nutrient_code: 'energy', adopted_result: '1700.00', unit: 'kcal/day' }],
       settings: { green_min_percent: '90', green_max_percent: '110', yellow_min_percent: '80', yellow_max_percent: '120' },
-      formulas: [], active: null, drafts: [], history: [],
+      formulas: [], treatment_suggestions: [{
+        source_treatment_id: 'tx-1', source_type: 'propofol', label: 'Propofol',
+        energy_kcal: '220.00', carbohydrate_g: '0', lipid_g: '0', fluid_ml: '200.00',
+        data_origin: 'treatment_snapshot', verification_status: 'suggested',
+      }], lab_context: [{ id: 'lab-1', test_name: 'Triglicéridos', value: '220', unit: 'mg/dL', flag: 'high' }],
+      active: null, drafts: [], history: [],
     }
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(workspace))
     render(<NutritionClinicalTab tab="prescription" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
@@ -160,6 +165,12 @@ describe('Ficha nutricional clínica', () => {
     expect(screen.getByRole('heading', { name: 'Estrategia nutricional' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Aportes en tiempo real' })).toBeInTheDocument()
     expect(screen.getByLabelText('Energía')).toHaveValue(1700)
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Nutrición parenteral' }))
+    expect(screen.getByRole('heading', { name: 'Nutrición parenteral individualizada' })).toBeInTheDocument()
+    expect(screen.getByText(/Triglicéridos: 220 mg\/dL/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Importar tratamientos' }))
+    expect(screen.getByDisplayValue('Propofol')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirmar aporte' })).toBeInTheDocument()
   })
 
   it('proyecta resumen finalizado, alertas y PES sin exponer auditoría', async () => {

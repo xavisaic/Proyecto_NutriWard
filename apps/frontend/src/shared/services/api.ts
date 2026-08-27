@@ -498,6 +498,7 @@ export interface NutritionPrescriptionOrder {
   suggested_reassessment_at: string | null
   oral_enabled: boolean
   enteral_enabled: boolean
+  parenteral_enabled: boolean
   fasting_enabled: boolean
   energy_goal_kcal: string | null
   protein_goal_g: string | null
@@ -529,11 +530,42 @@ export interface NutritionPrescriptionOrder {
   water_flush_every_hours: string | null
   medication_pause_hours: string
   enteral_starts_at: string | null
+  calculation_weight_kg: string | null
+  parenteral_access: 'central' | 'peripheral' | null
+  parenteral_solution_type: 'standardized' | 'individualized' | null
+  parenteral_solution_name: string | null
+  parenteral_total_volume_ml: string
+  parenteral_infusion_hours: string | null
+  parenteral_rate_ml_h: string
+  amino_acids_g: string
+  dextrose_g: string
+  parenteral_lipid_g: string
+  parenteral_gir_mg_kg_min: string | null
+  osmolarity_mosm_l: string | null
+  vitamins_instruction: string | null
+  trace_elements_instruction: string | null
+  insulin_units: string | null
+  parenteral_starts_at: string | null
+  planned_duration_days: number | null
+  refeeding_risk_confirmed: boolean
   prescribed_energy_kcal: string
   prescribed_protein_g: string
   prescribed_carbohydrate_g: string
   prescribed_lipid_g: string
   prescribed_fluid_ml: string
+  non_nutritional_energy_kcal: string
+  non_nutritional_carbohydrate_g: string
+  non_nutritional_lipid_g: string
+  non_nutritional_fluid_ml: string
+  total_real_energy_kcal: string
+  total_real_protein_g: string
+  total_real_carbohydrate_g: string
+  total_real_lipid_g: string
+  total_real_fluid_ml: string
+  signature_kind: string | null
+  signature_content_hash: string | null
+  signed_by_user_id: string | null
+  signed_at: string | null
   recipe_text: string | null
   general_observations: string | null
   author_name: string
@@ -548,7 +580,11 @@ export interface NutritionPrescriptionOrder {
   supplements: Array<Record<string, string>>
   progressions: Array<Record<string, string>>
   monitoring: Array<Record<string, string>>
+  electrolytes: Array<Record<string, string>>
+  non_nutritional_contributions: Array<Record<string, string>>
+  dispatches: Array<Record<string, string>>
   coverage: NutritionPrescriptionCoverage[]
+  nutritional_coverage: NutritionPrescriptionCoverage[]
   alerts: Array<{ severity: 'warning' | 'error'; code: string; message: string }>
   changes: Array<{ field: string; label: string; before: unknown; after: unknown }>
 }
@@ -561,8 +597,16 @@ export interface NutritionPrescriptionWorkspace {
     green_max_percent: string
     yellow_min_percent: string
     yellow_max_percent: string
+    peripheral_osmolarity_max_mosm_l: string
+    gir_max_mg_kg_min: string
+    lipid_max_g_kg_day: string
+    amino_acid_kcal_per_g: string
+    dextrose_kcal_per_g: string
+    lipid_kcal_per_g: string
   }
   formulas: EnteralFormulaCatalogItem[]
+  treatment_suggestions: Array<Record<string, string>>
+  lab_context: Array<Record<string, string>>
   active: NutritionPrescriptionOrder | null
   drafts: NutritionPrescriptionOrder[]
   history: NutritionPrescriptionOrder[]

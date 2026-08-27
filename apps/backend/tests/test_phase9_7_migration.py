@@ -20,6 +20,9 @@ PHASE9_8_TABLES = {
     "nutrition_prescription_supplements",
     "nutrition_prescription_progressions",
     "nutrition_prescription_monitoring",
+    "nutrition_prescription_electrolytes",
+    "nutrition_prescription_non_nutritional_contributions",
+    "nutrition_prescription_dispatches",
 }
 
 
@@ -57,6 +60,13 @@ def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
     inspector = inspect(engine)
     assert PHASE9_7_TABLES <= set(inspector.get_table_names())
     assert PHASE9_8_TABLES <= set(inspector.get_table_names())
+    prescription_columns = {row["name"] for row in inspector.get_columns("nutrition_prescription_orders")}
+    assert {
+        "parenteral_enabled", "parenteral_gir_mg_kg_min", "non_nutritional_energy_kcal",
+        "total_real_energy_kcal", "signature_content_hash", "signed_by_user_id",
+    } <= prescription_columns
+    dispatch_checks = {row["name"] for row in inspector.get_check_constraints("nutrition_prescription_dispatches")}
+    assert {"ck_prescription_dispatch_target", "ck_prescription_dispatch_status"} <= dispatch_checks
     checks = {
         row["name"]
         for row in inspector.get_check_constraints("admission_treatment_versions")
@@ -90,4 +100,4 @@ def test_single_alembic_head_is_phase9_7() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260826_0017" in heads[0]
+    assert "20260826_0018" in heads[0]

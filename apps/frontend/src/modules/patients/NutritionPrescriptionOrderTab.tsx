@@ -28,14 +28,13 @@ import {
   Typography,
 } from '@mui/material'
 import Grid from '@mui/material/Grid2'
-import { ChevronDown, Clipboard, Pencil, Plus, Printer, ShieldCheck, StopCircle, Trash2 } from 'lucide-react'
+import { ChevronDown, Clipboard, Pencil, Plus, Printer, Send, ShieldCheck, StopCircle, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { EmptyState, ErrorState, LoadingState, SectionCard } from '../../shared/components'
 import {
   ApiError,
   apiRequest,
-  EnteralFormulaCatalogItem,
   NutritionPrescriptionCoverage,
   NutritionPrescriptionOrder,
   NutritionPrescriptionWorkspace,
@@ -55,6 +54,7 @@ interface PrescriptionForm {
   change_reason: string
   oral_enabled: boolean
   enteral_enabled: boolean
+  parenteral_enabled: boolean
   fasting_enabled: boolean
   energy_goal_kcal: string
   protein_goal_g: string
@@ -85,12 +85,30 @@ interface PrescriptionForm {
   water_flush_every_hours: string
   medication_pause_hours: string
   enteral_starts_at: string
+  calculation_weight_kg: string
+  parenteral_access: string
+  parenteral_solution_type: string
+  parenteral_solution_name: string
+  parenteral_total_volume_ml: string
+  parenteral_infusion_hours: string
+  amino_acids_g: string
+  dextrose_g: string
+  parenteral_lipid_g: string
+  osmolarity_mosm_l: string
+  vitamins_instruction: string
+  trace_elements_instruction: string
+  insulin_units: string
+  parenteral_starts_at: string
+  planned_duration_days: string
+  refeeding_risk_confirmed: boolean
   suggested_reassessment_at: string
   general_observations: string
   meals: RowDraft[]
   supplements: RowDraft[]
   progressions: RowDraft[]
   monitoring: RowDraft[]
+  electrolytes: RowDraft[]
+  non_nutritional_contributions: RowDraft[]
 }
 
 function requestError(error: unknown) {
@@ -114,7 +132,7 @@ function requirement(workspace: NutritionPrescriptionWorkspace, aliases: string[
 
 function emptyForm(workspace: NutritionPrescriptionWorkspace): PrescriptionForm {
   return {
-    change_reason: 'Prescripción nutricional inicial.', oral_enabled: true, enteral_enabled: false,
+    change_reason: 'Prescripción nutricional inicial.', oral_enabled: true, enteral_enabled: false, parenteral_enabled: false,
     fasting_enabled: false, energy_goal_kcal: requirement(workspace, ['energy']),
     protein_goal_g: requirement(workspace, ['protein']), carbohydrate_goal_g: requirement(workspace, ['carbohydrate', 'carbohydrates']),
     lipid_goal_g: requirement(workspace, ['lipid', 'fat']), fluid_goal_ml: requirement(workspace, ['fluid', 'volume']),
@@ -124,14 +142,19 @@ function emptyForm(workspace: NutritionPrescriptionWorkspace): PrescriptionForm 
     enteral_formula_id: '', enteral_access_route: '', enteral_tube_location: '', enteral_modality: 'continuous',
     enteral_rate_ml_h: '', enteral_effective_hours: '', water_flush_ml: '', water_flush_every_hours: '',
     medication_pause_hours: '0', enteral_starts_at: '', suggested_reassessment_at: '', general_observations: '',
+    calculation_weight_kg: '', parenteral_access: 'central', parenteral_solution_type: 'individualized',
+    parenteral_solution_name: '', parenteral_total_volume_ml: '', parenteral_infusion_hours: '24',
+    amino_acids_g: '', dextrose_g: '', parenteral_lipid_g: '', osmolarity_mosm_l: '',
+    vitamins_instruction: '', trace_elements_instruction: '', insulin_units: '', parenteral_starts_at: '',
+    planned_duration_days: '', refeeding_risk_confirmed: false,
     meals: Object.keys(MEAL_LABELS).map((meal_time) => ({ meal_time, instruction: '' })),
-    supplements: [], progressions: [], monitoring: [],
+    supplements: [], progressions: [], monitoring: [], electrolytes: [], non_nutritional_contributions: [],
   }
 }
 
 function formFromOrder(row: NutritionPrescriptionOrder): PrescriptionForm {
   return {
-    change_reason: row.change_reason, oral_enabled: row.oral_enabled, enteral_enabled: row.enteral_enabled,
+    change_reason: row.change_reason, oral_enabled: row.oral_enabled, enteral_enabled: row.enteral_enabled, parenteral_enabled: row.parenteral_enabled ?? false,
     fasting_enabled: row.fasting_enabled, energy_goal_kcal: row.energy_goal_kcal ?? '', protein_goal_g: row.protein_goal_g ?? '',
     carbohydrate_goal_g: row.carbohydrate_goal_g ?? '', lipid_goal_g: row.lipid_goal_g ?? '', fluid_goal_ml: row.fluid_goal_ml ?? '',
     fluid_goal_kind: row.fluid_goal_kind, regimen_type: row.regimen_type ?? '', food_iddsi: row.food_iddsi?.toString() ?? '',
@@ -144,16 +167,25 @@ function formFromOrder(row: NutritionPrescriptionOrder): PrescriptionForm {
     enteral_effective_hours: row.enteral_effective_hours ?? '', water_flush_ml: row.water_flush_ml,
     water_flush_every_hours: row.water_flush_every_hours ?? '', medication_pause_hours: row.medication_pause_hours,
     enteral_starts_at: localDate(row.enteral_starts_at), suggested_reassessment_at: localDate(row.suggested_reassessment_at),
+    calculation_weight_kg: row.calculation_weight_kg ?? '', parenteral_access: row.parenteral_access ?? 'central',
+    parenteral_solution_type: row.parenteral_solution_type ?? 'individualized', parenteral_solution_name: row.parenteral_solution_name ?? '',
+    parenteral_total_volume_ml: row.parenteral_total_volume_ml ?? '', parenteral_infusion_hours: row.parenteral_infusion_hours ?? '24',
+    amino_acids_g: row.amino_acids_g ?? '', dextrose_g: row.dextrose_g ?? '', parenteral_lipid_g: row.parenteral_lipid_g ?? '',
+    osmolarity_mosm_l: row.osmolarity_mosm_l ?? '', vitamins_instruction: row.vitamins_instruction ?? '',
+    trace_elements_instruction: row.trace_elements_instruction ?? '', insulin_units: row.insulin_units ?? '',
+    parenteral_starts_at: localDate(row.parenteral_starts_at), planned_duration_days: row.planned_duration_days?.toString() ?? '',
+    refeeding_risk_confirmed: row.refeeding_risk_confirmed,
     general_observations: row.general_observations ?? '',
     meals: Object.keys(MEAL_LABELS).map((meal_time) => ({ meal_time, instruction: row.meals.find((item) => item.meal_time === meal_time)?.instruction ?? '' })),
     supplements: row.supplements.map((item) => ({ ...item })), progressions: row.progressions.map((item) => ({ ...item })),
-    monitoring: row.monitoring.map((item) => ({ ...item })),
+    monitoring: row.monitoring.map((item) => ({ ...item })), electrolytes: (row.electrolytes ?? []).map((item) => ({ ...item })),
+    non_nutritional_contributions: (row.non_nutritional_contributions ?? []).map((item) => ({ ...item })),
   }
 }
 
 function payload(form: PrescriptionForm, expected?: number) {
   return {
-    change_reason: form.change_reason, oral_enabled: form.oral_enabled, enteral_enabled: form.enteral_enabled,
+    change_reason: form.change_reason, oral_enabled: form.oral_enabled, enteral_enabled: form.enteral_enabled, parenteral_enabled: form.parenteral_enabled,
     fasting_enabled: form.fasting_enabled, energy_goal_kcal: number(form.energy_goal_kcal), protein_goal_g: number(form.protein_goal_g),
     carbohydrate_goal_g: number(form.carbohydrate_goal_g), lipid_goal_g: number(form.lipid_goal_g), fluid_goal_ml: number(form.fluid_goal_ml),
     fluid_goal_kind: form.fluid_goal_kind, regimen_type: form.regimen_type || null, food_iddsi: number(form.food_iddsi),
@@ -167,6 +199,15 @@ function payload(form: PrescriptionForm, expected?: number) {
     enteral_rate_ml_h: number(form.enteral_rate_ml_h), enteral_effective_hours: number(form.enteral_effective_hours),
     water_flush_ml: number0(form.water_flush_ml), water_flush_every_hours: number(form.water_flush_every_hours),
     medication_pause_hours: number0(form.medication_pause_hours), enteral_starts_at: iso(form.enteral_starts_at),
+    calculation_weight_kg: number(form.calculation_weight_kg), parenteral_access: form.parenteral_enabled ? form.parenteral_access : null,
+    parenteral_solution_type: form.parenteral_enabled ? form.parenteral_solution_type : null,
+    parenteral_solution_name: form.parenteral_solution_name || null, parenteral_total_volume_ml: number0(form.parenteral_total_volume_ml),
+    parenteral_infusion_hours: form.parenteral_enabled ? number(form.parenteral_infusion_hours) : null,
+    amino_acids_g: number0(form.amino_acids_g), dextrose_g: number0(form.dextrose_g), parenteral_lipid_g: number0(form.parenteral_lipid_g),
+    osmolarity_mosm_l: number(form.osmolarity_mosm_l), vitamins_instruction: form.vitamins_instruction || null,
+    trace_elements_instruction: form.trace_elements_instruction || null, insulin_units: number(form.insulin_units),
+    parenteral_starts_at: iso(form.parenteral_starts_at), planned_duration_days: number(form.planned_duration_days),
+    refeeding_risk_confirmed: form.refeeding_risk_confirmed,
     suggested_reassessment_at: iso(form.suggested_reassessment_at), general_observations: form.general_observations || null,
     meals: form.meals.filter((item) => item.instruction.trim()).map(({ meal_time, instruction }) => ({ meal_time, instruction })),
     supplements: form.supplements.map((item) => ({
@@ -177,18 +218,24 @@ function payload(form: PrescriptionForm, expected?: number) {
     })),
     progressions: form.progressions.map((item, index) => ({ sequence: index + 1, stage: item.stage, rate_ml_h: number0(item.rate_ml_h), duration_hours: number0(item.duration_hours), condition: item.condition || null })),
     monitoring: form.monitoring.map((item) => ({ parameter: item.parameter, frequency: item.frequency, responsible: item.responsible || null, instruction: item.instruction || null })),
+    electrolytes: form.electrolytes.map((item) => ({ electrolyte_code: item.electrolyte_code, amount: number0(item.amount), unit: item.unit, instruction: item.instruction || null })),
+    non_nutritional_contributions: form.non_nutritional_contributions.map((item) => ({
+      source_type: item.source_type, label: item.label, source_treatment_id: item.source_treatment_id || null,
+      energy_kcal: number0(item.energy_kcal), carbohydrate_g: number0(item.carbohydrate_g), lipid_g: number0(item.lipid_g),
+      fluid_ml: number0(item.fluid_ml), data_origin: item.data_origin || 'manual', verification_status: item.verification_status || 'confirmed',
+    })),
     ...(expected ? { expected_lock_version: expected } : {}),
   }
 }
 
-function calculate(form: PrescriptionForm, formulas: EnteralFormulaCatalogItem[]) {
+function calculate(form: PrescriptionForm, workspace: NutritionPrescriptionWorkspace) {
   let energy = form.oral_enabled ? number0(form.oral_energy_kcal) : 0
   let protein = form.oral_enabled ? number0(form.oral_protein_g) : 0
   let carbohydrate = form.oral_enabled ? number0(form.oral_carbohydrate_g) : 0
   let lipid = form.oral_enabled ? number0(form.oral_lipid_g) : 0
   let fluid = form.oral_enabled ? number0(form.oral_fluid_ml) : 0
   const volume = form.enteral_enabled ? number0(form.enteral_rate_ml_h) * number0(form.enteral_effective_hours) : 0
-  const formula = formulas.find((item) => item.id === form.enteral_formula_id)
+  const formula = workspace.formulas.find((item) => item.id === form.enteral_formula_id)
   if (formula && volume) {
     const liters = volume / 1000
     energy += volume * Number(formula.kcal_per_ml)
@@ -198,11 +245,28 @@ function calculate(form: PrescriptionForm, formulas: EnteralFormulaCatalogItem[]
     fluid += liters * Number(formula.free_water_ml_per_l)
   }
   if (number0(form.water_flush_every_hours)) fluid += number0(form.water_flush_ml) * 24 / number0(form.water_flush_every_hours)
+  if (form.parenteral_enabled) {
+    energy += number0(form.amino_acids_g) * Number(workspace.settings.amino_acid_kcal_per_g ?? 4)
+      + number0(form.dextrose_g) * Number(workspace.settings.dextrose_kcal_per_g ?? 3.4)
+      + number0(form.parenteral_lipid_g) * Number(workspace.settings.lipid_kcal_per_g ?? 10)
+    protein += number0(form.amino_acids_g); carbohydrate += number0(form.dextrose_g); lipid += number0(form.parenteral_lipid_g)
+    fluid += number0(form.parenteral_total_volume_ml)
+  }
   for (const item of form.supplements) {
     energy += number0(item.energy_kcal); protein += number0(item.protein_g); carbohydrate += number0(item.carbohydrate_g)
     lipid += number0(item.lipid_g); fluid += number0(item.fluid_ml)
   }
-  return { energy, protein, carbohydrate, lipid, fluid, volume }
+  const nutritional = { energy, protein, carbohydrate, lipid, fluid }
+  const nonNutritional = form.non_nutritional_contributions.filter((item) => item.verification_status === 'confirmed').reduce((sum, item) => ({
+    energy: sum.energy + number0(item.energy_kcal), protein: 0,
+    carbohydrate: sum.carbohydrate + number0(item.carbohydrate_g), lipid: sum.lipid + number0(item.lipid_g),
+    fluid: sum.fluid + number0(item.fluid_ml),
+  }), { energy: 0, protein: 0, carbohydrate: 0, lipid: 0, fluid: 0 })
+  return {
+    energy: nutritional.energy + nonNutritional.energy, protein: nutritional.protein,
+    carbohydrate: nutritional.carbohydrate + nonNutritional.carbohydrate, lipid: nutritional.lipid + nonNutritional.lipid,
+    fluid: nutritional.fluid + nonNutritional.fluid, volume, nutritional, nonNutritional,
+  }
 }
 
 function coverageColor(percent: number | null, goalKind: string, prescribed: number, goal: number, workspace: NutritionPrescriptionWorkspace) {
@@ -215,7 +279,7 @@ function coverageColor(percent: number | null, goalKind: string, prescribed: num
 }
 
 function liveCoverage(form: PrescriptionForm, workspace: NutritionPrescriptionWorkspace): NutritionPrescriptionCoverage[] {
-  const totals = calculate(form, workspace.formulas)
+  const totals = calculate(form, workspace)
   const rows: Array<[string, string, string, number, string, string]> = [
     ['energy', 'Energía', form.energy_goal_kcal, totals.energy, 'kcal', 'target'],
     ['protein', 'Proteínas', form.protein_goal_g, totals.protein, 'g', 'target'],
@@ -235,6 +299,14 @@ function CoverageTable({ rows }: { rows: NutritionPrescriptionCoverage[] }) {
   </TableBody></Table></TableContainer>
 }
 
+function ContributionSummary({ order }: { order: NutritionPrescriptionOrder }) {
+  return <Grid container spacing={1}>{[
+    ['Aporte nutricional', order.prescribed_energy_kcal, order.prescribed_fluid_ml],
+    ['Aporte no nutricional', order.non_nutritional_energy_kcal, order.non_nutritional_fluid_ml],
+    ['Aporte total real', order.total_real_energy_kcal, order.total_real_fluid_ml],
+  ].map(([label, energy, fluid]) => <Grid key={label} size={{ xs: 12, sm: 4 }}><Box p={1.5} border={1} borderColor="divider" borderRadius={2}><Typography variant="overline">{label}</Typography><Typography fontWeight={label === 'Aporte total real' ? 800 : 600}>{fmt(energy, 1)} kcal · {fmt(fluid, 1)} mL</Typography></Box></Grid>)}</Grid>
+}
+
 function ArrayRow({ item, fields, onChange, onDelete }: { item: RowDraft; fields: Array<[string, string, string?]>; onChange: (next: RowDraft) => void; onDelete: () => void }) {
   return <Grid container spacing={1} alignItems="center">{fields.map(([key, label, type]) => <Grid key={key} size={{ xs: 12, sm: fields.length > 4 ? 4 : 6, md: fields.length > 4 ? 2 : 3 }}><TextField fullWidth size="small" type={type ?? 'text'} label={label} value={item[key] ?? ''} onChange={(event) => onChange({ ...item, [key]: event.target.value })} /></Grid>)}<Grid size="auto"><Button color="error" aria-label="Eliminar fila" onClick={onDelete}><Trash2 size={18} /></Button></Grid></Grid>
 }
@@ -247,7 +319,14 @@ function PrescriptionEditor({ open, workspace, order, csrfToken, onClose, onSave
   useEffect(() => { if (open) { setForm(order ? formFromOrder(order) : emptyForm(workspace)); setError(null); setDirty(false) } }, [open, order, workspace])
   useEffect(() => { if (!open || !dirty) return; const warn = (event: BeforeUnloadEvent) => event.preventDefault(); window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn) }, [open, dirty])
   function set<K extends keyof PrescriptionForm>(key: K, value: PrescriptionForm[K]) { setForm((current) => ({ ...current, [key]: value })); setDirty(true) }
-  function rowSet(key: 'supplements' | 'progressions' | 'monitoring', index: number, value?: RowDraft) { set(key, value ? form[key].map((item, i) => i === index ? value : item) : form[key].filter((_, i) => i !== index)) }
+  function rowSet(key: 'supplements' | 'progressions' | 'monitoring' | 'electrolytes' | 'non_nutritional_contributions', index: number, value?: RowDraft) { set(key, value ? form[key].map((item, i) => i === index ? value : item) : form[key].filter((_, i) => i !== index)) }
+  function importTreatmentSuggestions() {
+    const existing = new Set(form.non_nutritional_contributions.map((item) => item.source_treatment_id).filter(Boolean))
+    const additions = (workspace.treatment_suggestions ?? [])
+      .filter((item) => !existing.has(String(item.source_treatment_id)))
+      .map((item) => Object.fromEntries(Object.entries(item).map(([key, value]) => [key, value == null ? '' : String(value)])))
+    set('non_nutritional_contributions', [...form.non_nutritional_contributions, ...additions])
+  }
   function close() { if (dirty && !window.confirm('Hay cambios sin guardar. ¿Desea cerrar?')) return; onClose() }
   async function save() {
     setSaving(true); setError(null)
@@ -260,8 +339,11 @@ function PrescriptionEditor({ open, workspace, order, csrfToken, onClose, onSave
     } catch (caught) { setError(requestError(caught)) } finally { setSaving(false) }
   }
   const live = liveCoverage(form, workspace)
-  const totals = calculate(form, workspace.formulas)
-  const canSave = form.change_reason.trim().length >= 3 && !(form.fasting_enabled && (form.oral_enabled || form.enteral_enabled || form.supplements.length > 0))
+  const totals = calculate(form, workspace)
+  const parenteralRate = number0(form.parenteral_infusion_hours) ? number0(form.parenteral_total_volume_ml) / number0(form.parenteral_infusion_hours) : 0
+  const gir = number0(form.calculation_weight_kg) && number0(form.parenteral_infusion_hours)
+    ? number0(form.dextrose_g) * 1000 / (number0(form.calculation_weight_kg) * number0(form.parenteral_infusion_hours) * 60) : 0
+  const canSave = form.change_reason.trim().length >= 3 && !(form.fasting_enabled && (form.oral_enabled || form.enteral_enabled || form.parenteral_enabled || form.supplements.length > 0))
   return <Dialog open={open} onClose={saving ? undefined : close} fullScreen><DialogTitle>Prescripción nutricional {order ? `· versión ${order.version_number}` : 'nueva'}</DialogTitle><DialogContent dividers>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Grid container spacing={2}>
@@ -271,7 +353,7 @@ function PrescriptionEditor({ open, workspace, order, csrfToken, onClose, onSave
         <Grid container spacing={1}><Grid size={7}><TextField fullWidth type="number" label="Volumen" value={form.fluid_goal_ml} onChange={(e) => set('fluid_goal_ml', e.target.value)} helperText="mL/día" /></Grid><Grid size={5}><FormControl fullWidth><InputLabel>Tipo</InputLabel><Select label="Tipo" value={form.fluid_goal_kind} onChange={(e) => set('fluid_goal_kind', e.target.value as PrescriptionForm['fluid_goal_kind'])}><MenuItem value="target">Meta</MenuItem><MenuItem value="maximum">Máximo</MenuItem><MenuItem value="minimum">Mínimo</MenuItem><MenuItem value="range">Rango</MenuItem></Select></FormControl></Grid></Grid>
         <TextField type="datetime-local" label="Próxima reevaluación" value={form.suggested_reassessment_at} onChange={(e) => set('suggested_reassessment_at', e.target.value)} InputLabelProps={{ shrink: true }} />
       </Stack></SectionCard></Stack></Grid>
-      <Grid size={{ xs: 12, lg: 6 }}><Stack spacing={2}><SectionCard title="Estrategia nutricional" description="Puede combinar vías; régimen cero es exclusivo."><Stack direction={{ xs: 'column', sm: 'row' }}><FormControlLabel control={<Checkbox checked={form.oral_enabled} onChange={(e) => set('oral_enabled', e.target.checked)} />} label="Alimentación oral" /><FormControlLabel control={<Checkbox checked={form.enteral_enabled} onChange={(e) => set('enteral_enabled', e.target.checked)} />} label="Nutrición enteral" /><FormControlLabel control={<Checkbox checked={form.fasting_enabled} onChange={(e) => set('fasting_enabled', e.target.checked)} />} label="Régimen cero" /></Stack>{form.fasting_enabled && (form.oral_enabled || form.enteral_enabled || form.supplements.length > 0) && <Alert severity="error">Régimen cero no puede combinarse con aportes nutricionales.</Alert>}</SectionCard>
+      <Grid size={{ xs: 12, lg: 6 }}><Stack spacing={2}><SectionCard title="Estrategia nutricional" description="Puede combinar vías; régimen cero es exclusivo."><Stack direction={{ xs: 'column', sm: 'row' }} flexWrap="wrap"><FormControlLabel control={<Checkbox checked={form.oral_enabled} onChange={(e) => set('oral_enabled', e.target.checked)} />} label="Alimentación oral" /><FormControlLabel control={<Checkbox checked={form.enteral_enabled} onChange={(e) => set('enteral_enabled', e.target.checked)} />} label="Nutrición enteral" /><FormControlLabel control={<Checkbox checked={form.parenteral_enabled} onChange={(e) => set('parenteral_enabled', e.target.checked)} />} label="Nutrición parenteral" /><FormControlLabel control={<Checkbox checked={form.fasting_enabled} onChange={(e) => set('fasting_enabled', e.target.checked)} />} label="Régimen cero" /></Stack>{form.fasting_enabled && (form.oral_enabled || form.enteral_enabled || form.parenteral_enabled || form.supplements.length > 0) && <Alert severity="error">Régimen cero no puede combinarse con aportes nutricionales.</Alert>}</SectionCard>
         {form.oral_enabled && <SectionCard title="Prescripción oral"><Grid container spacing={1.5}><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth required label="Tipo de régimen" value={form.regimen_type} onChange={(e) => set('regimen_type', e.target.value)} /></Grid><Grid size={{ xs: 6, md: 3 }}><FormControl fullWidth><InputLabel>Alimentos IDDSI</InputLabel><Select label="Alimentos IDDSI" value={form.food_iddsi} onChange={(e) => set('food_iddsi', e.target.value)}><MenuItem value="">Sin indicar</MenuItem>{[3,4,5,6,7].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</Select></FormControl></Grid><Grid size={{ xs: 6, md: 3 }}><FormControl fullWidth><InputLabel>Líquidos IDDSI</InputLabel><Select label="Líquidos IDDSI" value={form.liquid_iddsi} onChange={(e) => set('liquid_iddsi', e.target.value)}><MenuItem value="">Sin indicar</MenuItem>{[0,1,2,3,4].map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</Select></FormControl></Grid>
           <Grid size={12}><TextField fullWidth label="Restricciones" value={form.restrictions} onChange={(e) => set('restrictions', e.target.value)} multiline /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Alergias e intolerancias consideradas" value={form.allergies_snapshot} onChange={(e) => set('allergies_snapshot', e.target.value)} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Asistencia para alimentación" value={form.feeding_assistance} onChange={(e) => set('feeding_assistance', e.target.value)} /></Grid>
           {([['oral_energy_kcal','Energía kcal'],['oral_protein_g','Proteína g'],['oral_carbohydrate_g','CHO g'],['oral_lipid_g','Lípidos g'],['oral_fluid_ml','Volumen mL']] as const).map(([key,label]) => <Grid key={key} size={{ xs: 6, md: 2.4 }}><TextField fullWidth type="number" label={label} value={form[key]} onChange={(e) => set(key, e.target.value)} /></Grid>)}
@@ -284,10 +366,21 @@ function PrescriptionEditor({ open, workspace, order, csrfToken, onClose, onSave
           <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="number" label="Pausas por medicamentos/procedimientos (h)" value={form.medication_pause_hours} onChange={(e) => set('medication_pause_hours', e.target.value)} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="datetime-local" label="Inicio" value={form.enteral_starts_at} onChange={(e) => set('enteral_starts_at', e.target.value)} InputLabelProps={{ shrink: true }} /></Grid><Grid size={12}><Alert severity="info">Volumen diario calculado: {fmt(totals.volume, 1)} mL.</Alert></Grid>
           <Grid size={12}><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography fontWeight={700}>Progresión</Typography><Button size="small" startIcon={<Plus size={16} />} onClick={() => set('progressions', [...form.progressions, { stage: '', rate_ml_h: '', duration_hours: '', condition: '' }])}>Etapa</Button></Stack>{form.progressions.map((item,index) => <ArrayRow key={index} item={item} fields={[["stage","Etapa"],["rate_ml_h","mL/h","number"],["duration_hours","Duración h","number"],["condition","Condición"]]} onChange={(next) => rowSet('progressions',index,next)} onDelete={() => rowSet('progressions',index)} />)}</Stack></Grid>
         </Grid></SectionCard>}
+        {form.parenteral_enabled && <SectionCard title="Nutrición parenteral individualizada" description="Los umbrales son configurables y generan alertas de apoyo, no bloqueos."><Grid container spacing={1.5}>
+          <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth required type="number" label="Peso de cálculo (kg)" value={form.calculation_weight_kg} onChange={(e) => set('calculation_weight_kg', e.target.value)} /></Grid><Grid size={{ xs: 6, md: 4 }}><FormControl fullWidth><InputLabel>Acceso</InputLabel><Select label="Acceso" value={form.parenteral_access} onChange={(e) => set('parenteral_access', e.target.value)}><MenuItem value="central">Central</MenuItem><MenuItem value="peripheral">Periférico</MenuItem></Select></FormControl></Grid><Grid size={{ xs: 6, md: 4 }}><FormControl fullWidth><InputLabel>Solución</InputLabel><Select label="Solución" value={form.parenteral_solution_type} onChange={(e) => set('parenteral_solution_type', e.target.value)}><MenuItem value="individualized">Individualizada</MenuItem><MenuItem value="standardized">Estandarizada/comercial</MenuItem></Select></FormControl></Grid>
+          <Grid size={12}><TextField fullWidth label="Nombre de mezcla o solución" value={form.parenteral_solution_name} onChange={(e) => set('parenteral_solution_name', e.target.value)} /></Grid>
+          {([['parenteral_total_volume_ml','Volumen total mL'],['parenteral_infusion_hours','Infusión h'],['amino_acids_g','Aminoácidos g'],['dextrose_g','Dextrosa g'],['parenteral_lipid_g','Lípidos g'],['osmolarity_mosm_l','Osmolaridad mOsm/L']] as const).map(([key,label]) => <Grid key={key} size={{ xs: 6, md: 4 }}><TextField fullWidth type="number" label={label} value={form[key]} onChange={(e) => set(key, e.target.value)} /></Grid>)}
+          <Grid size={12}><Alert severity={gir > Number(workspace.settings.gir_max_mg_kg_min) ? 'warning' : 'info'}>Velocidad: {fmt(parenteralRate, 2)} mL/h · GIR: {fmt(gir, 3)} mg/kg/min.</Alert></Grid>
+          <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Vitaminas" value={form.vitamins_instruction} onChange={(e) => set('vitamins_instruction', e.target.value)} multiline /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Oligoelementos" value={form.trace_elements_instruction} onChange={(e) => set('trace_elements_instruction', e.target.value)} multiline /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label="Insulina U" value={form.insulin_units} onChange={(e) => set('insulin_units', e.target.value)} /></Grid><Grid size={{ xs: 6, md: 3 }}><TextField fullWidth type="number" label="Duración estimada (días)" value={form.planned_duration_days} onChange={(e) => set('planned_duration_days', e.target.value)} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="datetime-local" label="Inicio" value={form.parenteral_starts_at} onChange={(e) => set('parenteral_starts_at', e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+          <Grid size={12}><FormControlLabel control={<Checkbox checked={form.refeeding_risk_confirmed} onChange={(e) => set('refeeding_risk_confirmed', e.target.checked)} />} label="Riesgo de síndrome de realimentación confirmado" /></Grid>
+          <Grid size={12}><Stack spacing={1}><Stack direction="row" justifyContent="space-between"><Typography fontWeight={700}>Electrolitos detallados</Typography><Button size="small" startIcon={<Plus size={16} />} onClick={() => set('electrolytes', [...form.electrolytes, { electrolyte_code: 'sodium', amount: '', unit: 'mmol', instruction: '' }])}>Electrolito</Button></Stack>{form.electrolytes.map((item,index) => <Grid key={index} container spacing={1} alignItems="center"><Grid size={{ xs: 12, md: 3 }}><FormControl fullWidth size="small"><InputLabel>Electrolito</InputLabel><Select label="Electrolito" value={item.electrolyte_code} onChange={(e) => rowSet('electrolytes', index, { ...item, electrolyte_code: e.target.value })}>{[['sodium','Sodio'],['potassium','Potasio'],['calcium','Calcio'],['magnesium','Magnesio'],['phosphate','Fosfato'],['chloride','Cloruro'],['acetate','Acetato'],['other','Otro']].map(([value,label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select></FormControl></Grid><Grid size={{ xs: 6, md: 2 }}><TextField fullWidth size="small" type="number" label="Cantidad" value={item.amount} onChange={(e) => rowSet('electrolytes', index, { ...item, amount: e.target.value })} /></Grid><Grid size={{ xs: 6, md: 2 }}><TextField fullWidth size="small" label="Unidad" value={item.unit} onChange={(e) => rowSet('electrolytes', index, { ...item, unit: e.target.value })} /></Grid><Grid size={{ xs: 10, md: 4 }}><TextField fullWidth size="small" label="Instrucción" value={item.instruction} onChange={(e) => rowSet('electrolytes', index, { ...item, instruction: e.target.value })} /></Grid><Grid size="auto"><Button color="error" aria-label="Eliminar electrolito" onClick={() => rowSet('electrolytes',index)}><Trash2 size={18} /></Button></Grid></Grid>)}</Stack></Grid>
+        </Grid></SectionCard>}
+        <SectionCard title="Aportes no nutricionales" description="Deben confirmarse antes de formar parte del total real." actions={<Stack direction="row"><Button size="small" onClick={importTreatmentSuggestions} disabled={(workspace.treatment_suggestions ?? []).length === 0}>Importar tratamientos</Button><Button size="small" startIcon={<Plus size={16} />} onClick={() => set('non_nutritional_contributions', [...form.non_nutritional_contributions, { source_type: 'other', label: '', source_treatment_id: '', energy_kcal: '', carbohydrate_g: '', lipid_g: '', fluid_ml: '', data_origin: 'manual', verification_status: 'confirmed' }])}>Aporte</Button></Stack>}><Stack spacing={1.5}>{form.non_nutritional_contributions.length === 0 ? <Typography color="text.secondary">Sin aportes no nutricionales confirmados.</Typography> : form.non_nutritional_contributions.map((item,index) => <Box key={index}><ArrayRow item={item} fields={[["label","Fuente"],["energy_kcal","kcal","number"],["carbohydrate_g","CHO g","number"],["lipid_g","Lípidos g","number"],["fluid_ml","Volumen mL","number"]]} onChange={(next) => rowSet('non_nutritional_contributions',index,next)} onDelete={() => rowSet('non_nutritional_contributions',index)} />{item.verification_status === 'suggested' && <Button size="small" onClick={() => rowSet('non_nutritional_contributions', index, { ...item, verification_status: 'confirmed' })}>Confirmar aporte</Button>}</Box>)}</Stack></SectionCard>
         {!form.fasting_enabled && <SectionCard title="Suplementos y módulos" actions={<Button size="small" startIcon={<Plus size={16} />} onClick={() => set('supplements', [...form.supplements, { product_type: 'oral_supplement', product_name: '', dose: '', dose_unit: '', schedule: '', route: 'oral', duration: '', energy_kcal: '', protein_g: '', carbohydrate_g: '', lipid_g: '', fluid_ml: '' }])}>Producto</Button>}><Stack spacing={1.5}>{form.supplements.length === 0 ? <Typography color="text.secondary">Sin productos adicionales.</Typography> : form.supplements.map((item,index) => <ArrayRow key={index} item={item} fields={[["product_name","Producto"],["dose","Dosis","number"],["dose_unit","Unidad"],["schedule","Horario"],["energy_kcal","kcal","number"],["protein_g","Proteína g","number"],["fluid_ml","Volumen mL","number"]]} onChange={(next) => rowSet('supplements',index,next)} onDelete={() => rowSet('supplements',index)} />)}</Stack></SectionCard>}
         <SectionCard title="Monitoreo" actions={<Button size="small" startIcon={<Plus size={16} />} onClick={() => set('monitoring', [...form.monitoring, { parameter: '', frequency: '', responsible: '', instruction: '' }])}>Indicación</Button>}><Stack spacing={1.5}>{form.monitoring.map((item,index) => <ArrayRow key={index} item={item} fields={[["parameter","Parámetro"],["frequency","Frecuencia"],["responsible","Responsable"],["instruction","Instrucción"]]} onChange={(next) => rowSet('monitoring',index,next)} onDelete={() => rowSet('monitoring',index)} />)}{form.monitoring.length === 0 && <Typography color="text.secondary">Sin indicaciones de monitoreo.</Typography>}</Stack></SectionCard>
       </Stack></Grid>
-      <Grid size={{ xs: 12, lg: 3 }}><Box sx={{ position: { lg: 'sticky' }, top: 8 }}><SectionCard title="Aportes en tiempo real" description="La API recalculará y congelará estos valores al guardar."><CoverageTable rows={live} /><Alert severity="info" sx={{ mt: 2 }}>Los colores apoyan la revisión y no impiden guardar ni validar.</Alert></SectionCard></Box></Grid>
+      <Grid size={{ xs: 12, lg: 3 }}><Box sx={{ position: { lg: 'sticky' }, top: 8 }}><SectionCard title="Aportes en tiempo real" description="La cobertura usa el total real; cada origen permanece visible."><Stack spacing={1.5}><Box><Typography variant="overline">Aporte nutricional</Typography><Typography>{fmt(totals.nutritional.energy, 1)} kcal · {fmt(totals.nutritional.protein, 1)} g proteína · {fmt(totals.nutritional.fluid, 1)} mL</Typography></Box><Box><Typography variant="overline">Aporte no nutricional</Typography><Typography>{fmt(totals.nonNutritional.energy, 1)} kcal · {fmt(totals.nonNutritional.fluid, 1)} mL</Typography></Box><Box><Typography variant="overline">Aporte total real</Typography><Typography fontWeight={800}>{fmt(totals.energy, 1)} kcal · {fmt(totals.fluid, 1)} mL</Typography></Box><CoverageTable rows={live} />{(workspace.lab_context ?? []).length > 0 && <Box><Typography fontWeight={700}>Laboratorio relevante</Typography>{(workspace.lab_context ?? []).map((lab) => <Typography key={lab.id} variant="body2" color={lab.flag && lab.flag !== 'normal' ? 'warning.main' : 'text.secondary'}>{lab.test_name}: {lab.value} {lab.unit || ''} · {lab.flag || 'sin bandera'}</Typography>)}</Box>}<Alert severity="info">Los colores y alertas apoyan la revisión; no sustituyen el juicio clínico.</Alert></Stack></SectionCard></Box></Grid>
     </Grid>
   </DialogContent><DialogActions><Button onClick={close}>Cerrar</Button><Button variant="contained" disabled={saving || !canSave} onClick={() => void save()}>Guardar borrador</Button></DialogActions></Dialog>
 }
@@ -314,9 +407,9 @@ export function NutritionPrescriptionOrderTab({ admissionId, historical, csrfTok
     <style>{'@media print { body * { visibility: hidden !important; } .nutrition-prescription-print-active, .nutrition-prescription-print-active * { visibility: visible !important; } .nutrition-prescription-print-active { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; } }'}</style>
     {error && <Alert severity="error">{error}</Alert>}
     <SectionCard title="Prescripción nutricional" description="Define cómo se entregarán las metas calculadas y conserva cada versión clínica." actions={!historical ? <Button variant="contained" startIcon={<Plus size={18} />} onClick={() => setEditor({ open: true, order: null })}>Nueva prescripción</Button> : undefined}>
-      {active ? <Stack spacing={2}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box><Stack direction="row" gap={1} alignItems="center"><Typography variant="h6" fontWeight={800}>Versión {active.version_number}</Typography><Chip color="success" label="Activa" size="small" /></Stack><Typography color="text.secondary">Vigente desde {formatDate(active.effective_from)} · {active.author_name}</Typography></Box>{!historical && <Stack direction="row" gap={1} flexWrap="wrap"><Button startIcon={<Pencil size={17} />} disabled={busy} onClick={() => void modify(active)}>Modificar</Button><Button startIcon={<Clipboard size={17} />} onClick={() => void navigator.clipboard.writeText(active.recipe_text ?? '')}>Copiar indicación</Button><Button startIcon={<Printer size={17} />} onClick={() => window.print()}>Imprimir</Button><Button color="warning" startIcon={<StopCircle size={17} />} disabled={busy} onClick={() => { const reason = window.prompt('Motivo de suspensión'); if (reason?.trim()) void action(`/nutrition-prescription-orders/${active.id}/suspend`, { expected_lock_version: active.lock_version, reason }) }}>Suspender</Button></Stack>}</Stack><Divider /><Recipe order={active} active /><CoverageTable rows={active.coverage} />{active.alerts.map((item) => <Alert key={item.code} severity={item.severity}>{item.message}</Alert>)}</Stack> : <EmptyState title="Sin prescripción activa" description="Cree un borrador, valídelo y actívelo para publicar una indicación vigente." />}
+      {active ? <Stack spacing={2}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box><Stack direction="row" gap={1} alignItems="center"><Typography variant="h6" fontWeight={800}>Versión {active.version_number}</Typography><Chip color="success" label="Activa" size="small" /></Stack><Typography color="text.secondary">Vigente desde {formatDate(active.effective_from)} · {active.author_name}</Typography></Box>{!historical && <Stack direction="row" gap={1} flexWrap="wrap"><Button startIcon={<Pencil size={17} />} disabled={busy} onClick={() => void modify(active)}>Modificar</Button>{active.parenteral_enabled && <Button startIcon={<Send size={17} />} disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${active.id}/dispatch`, { target: 'pharmacy' })}>Farmacia</Button>}<Button startIcon={<Send size={17} />} disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${active.id}/dispatch`, { target: 'kitchen' })}>Cocina</Button><Button startIcon={<Send size={17} />} disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${active.id}/dispatch`, { target: 'nursing' })}>Enfermería</Button><Button startIcon={<Clipboard size={17} />} onClick={() => void navigator.clipboard.writeText(active.recipe_text ?? '')}>Copiar indicación</Button><Button startIcon={<Printer size={17} />} onClick={() => window.print()}>Imprimir</Button><Button color="warning" startIcon={<StopCircle size={17} />} disabled={busy} onClick={() => { const reason = window.prompt('Motivo de suspensión'); if (reason?.trim()) void action(`/nutrition-prescription-orders/${active.id}/suspend`, { expected_lock_version: active.lock_version, reason }) }}>Suspender</Button></Stack>}</Stack><Divider /><Recipe order={active} active /><ContributionSummary order={active} /><CoverageTable rows={active.coverage} />{active.signature_content_hash && <Alert severity="success">Atestación clínica interna registrada · huella {active.signature_content_hash.slice(0, 12)}…</Alert>}{(active.dispatches ?? []).map((item) => <Alert key={item.id} severity="info">Envío interno a {item.target}: {item.status}. Este estado no confirma recepción por un sistema externo.</Alert>)}{active.alerts.map((item) => <Alert key={`${item.code}-${item.message}`} severity={item.severity}>{item.message}</Alert>)}</Stack> : <EmptyState title="Sin prescripción activa" description="Cree un borrador, fírmelo clínicamente y actívelo para publicar una indicación vigente." />}
     </SectionCard>
-    {workspace.drafts.length > 0 && <SectionCard title={`Borradores (${workspace.drafts.length})`} description="Sólo el autor o jefatura puede editarlos."><Stack spacing={1.5}>{workspace.drafts.map((draft) => <Box key={draft.id} p={2} border={1} borderColor="divider" borderRadius={2}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}><Box><Typography fontWeight={800}>Versión {draft.version_number} · {draft.change_reason}</Typography><Typography variant="body2" color="text.secondary">Actualizada {formatDate(draft.updated_at)} · {draft.author_name}</Typography></Box><Stack direction="row" gap={1}><Button onClick={() => setEditor({ open: true, order: draft })}>Continuar</Button><Button variant="contained" startIcon={<ShieldCheck size={17} />} disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${draft.id}/validate`, { expected_lock_version: draft.lock_version })}>Validar</Button></Stack></Stack>{draft.alerts.length > 0 && <Alert severity="warning" sx={{ mt: 1 }}>{draft.alerts.map((item) => item.message).join(' ')}</Alert>}</Box>)}</Stack></SectionCard>}
+    {workspace.drafts.length > 0 && <SectionCard title={`Borradores (${workspace.drafts.length})`} description="Sólo el autor o jefatura puede editarlos."><Stack spacing={1.5}>{workspace.drafts.map((draft) => <Box key={draft.id} p={2} border={1} borderColor="divider" borderRadius={2}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}><Box><Typography fontWeight={800}>Versión {draft.version_number} · {draft.change_reason}</Typography><Typography variant="body2" color="text.secondary">Actualizada {formatDate(draft.updated_at)} · {draft.author_name}</Typography></Box><Stack direction="row" gap={1}><Button onClick={() => setEditor({ open: true, order: draft })}>Continuar</Button><Button variant="contained" startIcon={<ShieldCheck size={17} />} disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${draft.id}/validate`, { expected_lock_version: draft.lock_version })}>Firmar y validar</Button></Stack></Stack>{draft.alerts.length > 0 && <Alert severity="warning" sx={{ mt: 1 }}>{draft.alerts.map((item) => item.message).join(' ')}</Alert>}</Box>)}</Stack></SectionCard>}
     {validated && !historical && <Alert severity="info" action={<Button disabled={busy} onClick={() => void action(`/nutrition-prescription-orders/${validated.id}/activate`, { expected_lock_version: validated.lock_version })}>Activar versión {validated.version_number}</Button>}>Existe una prescripción validada pendiente de activación. Activarla reemplazará atómicamente cualquier versión vigente.</Alert>}
     <SectionCard title={`Historial de versiones (${workspace.history.length})`}><Stack>{workspace.history.length === 0 ? <Typography color="text.secondary">Aún no hay versiones validadas.</Typography> : workspace.history.map((row) => <Accordion key={row.id} disableGutters><AccordionSummary expandIcon={<ChevronDown size={18} />}><Stack direction="row" gap={1} alignItems="center"><Typography fontWeight={700}>Versión {row.version_number}</Typography><Chip size="small" label={STATUS_LABELS[row.status] ?? row.status} /><Typography variant="body2" color="text.secondary">{formatDate(row.validated_at)}</Typography></Stack></AccordionSummary><AccordionDetails><Stack spacing={2}><Recipe order={row} />{row.changes.length > 0 && <Box><Typography fontWeight={700}>Cambios respecto de la versión anterior</Typography>{row.changes.map((change) => <Typography key={change.field} variant="body2">{change.label}: {String(change.before ?? '—')} → {String(change.after ?? '—')}</Typography>)}</Box>}<CoverageTable rows={row.coverage} />{row.suspension_reason && <Alert severity="warning">Suspensión: {row.suspension_reason}</Alert>}</Stack></AccordionDetails></Accordion>)}</Stack></SectionCard>
     <PrescriptionEditor open={editor.open} workspace={workspace} order={editor.order} csrfToken={csrfToken} onClose={() => setEditor({ open: false, order: null })} onSaved={() => { void load(); onChanged() }} />

@@ -174,3 +174,106 @@ def test_prescription_permissions_and_structural_validation(client, db_session) 
     )
     assert rejected.status_code == 422
 
+
+def test_parenteral_real_totals_signature_and_dispatch_outbox(client, db_session) -> None:
+    admission = active_admission(db_session)
+    auth = authenticate(client)
+    headers = {"X-CSRF-Token": auth["csrf_token"]}
+    treatment = client.post(
+        f"/api/v1/admissions/{admission.id}/treatments",
+        headers=headers,
+        json={
+            "kind": "medication", "name": "Propofol 2%", "category": "sedative_analgesic",
+            "prescription_text": "Infusión continua", "rate_value": 8, "rate_unit": "mL/h",
+            "prescribed_energy_kcal_day": 300, "order_status": "active",
+            "source_type": "medical_order", "observed_at": "2026-08-26T08:00:00Z",
+            "verification_status": "verified",
+        },
+    )
+    assert treatment.status_code == 201, treatment.text
+    suggested_workspace = client.get(f"/api/v1/admissions/{admission.id}/nutrition-prescription-workspace")
+    assert suggested_workspace.status_code == 200
+    assert suggested_workspace.json()["treatment_suggestions"][0]["source_type"] == "propofol"
+    created = client.post(
+        f"/api/v1/admissions/{admission.id}/nutrition-prescription-orders",
+        headers=headers,
+        json={
+            "change_reason": "Inicio de nutrición parenteral individualizada.",
+            "parenteral_enabled": True,
+            "energy_goal_kcal": 1800,
+            "protein_goal_g": 80,
+            "lipid_goal_g": 80,
+            "fluid_goal_ml": 1600,
+            "fluid_goal_kind": "maximum",
+            "calculation_weight_kg": 70,
+            "parenteral_access": "peripheral",
+            "parenteral_solution_type": "individualized",
+            "parenteral_solution_name": "Mezcla individualizada 01",
+            "parenteral_total_volume_ml": 1440,
+            "parenteral_infusion_hours": 24,
+            "amino_acids_g": 80,
+            "dextrose_g": 200,
+            "parenteral_lipid_g": 50,
+            "osmolarity_mosm_l": 950,
+            "vitamins_instruction": "Multivitamínico según protocolo.",
+            "trace_elements_instruction": "Oligoelementos diarios.",
+            "refeeding_risk_confirmed": True,
+            "electrolytes": [
+                {"electrolyte_code": "sodium", "amount": 70, "unit": "mmol"},
+                {"electrolyte_code": "phosphate", "amount": 20, "unit": "mmol"},
+            ],
+            "non_nutritional_contributions": [{
+                "source_type": "propofol",
+                "label": "Propofol confirmado por tratamiento vigente",
+                "source_treatment_id": treatment.json()["id"],
+                "energy_kcal": 300,
+                "lipid_g": 30,
+                "fluid_ml": 100,
+                "data_origin": "treatment_snapshot",
+                "verification_status": "confirmed",
+            }],
+        },
+    )
+    assert created.status_code == 201, created.text
+    draft = created.json()
+    assert draft["parenteral_rate_ml_h"] == "60.00"
+    assert draft["parenteral_gir_mg_kg_min"] == "1.984"
+    assert draft["prescribed_energy_kcal"] == "1500.00"
+    assert draft["non_nutritional_energy_kcal"] == "300.00"
+    assert draft["total_real_energy_kcal"] == "1800.00"
+    assert draft["total_real_lipid_g"] == "80.00"
+    assert draft["total_real_fluid_ml"] == "1540.00"
+    assert next(item for item in draft["coverage"] if item["code"] == "energy")["percent"] == "100.00"
+    assert {item["code"] for item in draft["alerts"]} >= {"peripheral_osmolarity", "refeeding_monitoring"}
+
+    validated = client.post(
+        f"/api/v1/nutrition-prescription-orders/{draft['id']}/validate",
+        headers=headers,
+        json={"expected_lock_version": draft["lock_version"]},
+    )
+    assert validated.status_code == 200, validated.text
+    signed = validated.json()
+    assert signed["signature_kind"] == "internal_clinical_attestation"
+    assert len(signed["signature_content_hash"]) == 64
+    assert signed["signed_at"] is not None
+
+    activated = client.post(
+        f"/api/v1/nutrition-prescription-orders/{draft['id']}/activate",
+        headers=headers,
+        json={"expected_lock_version": signed["lock_version"]},
+    )
+    assert activated.status_code == 200, activated.text
+    dispatched = client.post(
+        f"/api/v1/nutrition-prescription-orders/{draft['id']}/dispatch",
+        headers=headers,
+        json={"target": "pharmacy", "note": "Revisión y preparación institucional."},
+    )
+    assert dispatched.status_code == 200, dispatched.text
+    outbox = dispatched.json()["dispatches"]
+    assert outbox[0]["channel"] == "internal_outbox"
+    assert outbox[0]["status"] == "queued"
+    assert outbox[0]["payload_hash"] == signed["signature_content_hash"]
+
+    audits = db_session.exec(select(AuditLog).where(AuditLog.entity_type == "nutrition_prescription_dispatch")).all()
+    assert audits
+    assert all("recipe_text" not in str(row.after_state) for row in audits)
