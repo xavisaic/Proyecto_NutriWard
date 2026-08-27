@@ -239,10 +239,11 @@ class NutritionPrescriptionNonNutritionalContribution(SQLModel, table=True):
             "source_type IN ('propofol','dextrose_solution','citrate','medication_vehicle','flush_water','iv_fluid','other')",
             name="ck_non_nutritional_source_type",
         ),
+        Index("ix_prescription_non_nutritional_order", "order_id"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    order_id: uuid.UUID = Field(foreign_key="nutrition_prescription_orders.id", index=True)
+    order_id: uuid.UUID = Field(foreign_key="nutrition_prescription_orders.id")
     source_type: str = Field(max_length=40)
     label: str = Field(max_length=300)
     source_treatment_id: uuid.UUID | None = Field(default=None, foreign_key="admission_treatments.id")

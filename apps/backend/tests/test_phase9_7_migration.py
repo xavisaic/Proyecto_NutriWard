@@ -101,3 +101,14 @@ def test_single_alembic_head_is_phase9_7() -> None:
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
     assert "20260826_0018" in heads[0]
+
+
+def test_metadata_identifiers_fit_postgresql_limit() -> None:
+    metadata = get_metadata()
+    identifiers = [
+        item.name
+        for table in metadata.tables.values()
+        for item in (*table.indexes, *table.constraints)
+        if item.name
+    ]
+    assert all(len(name) <= 63 for name in identifiers)

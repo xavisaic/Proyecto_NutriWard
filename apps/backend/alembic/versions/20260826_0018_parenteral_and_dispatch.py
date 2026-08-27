@@ -98,7 +98,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["source_treatment_id"], ["admission_treatments.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_nutrition_prescription_non_nutritional_contributions_order_id", "nutrition_prescription_non_nutritional_contributions", ["order_id"])
+    op.create_index("ix_prescription_non_nutritional_order", "nutrition_prescription_non_nutritional_contributions", ["order_id"])
 
     op.create_table(
         "nutrition_prescription_dispatches",
