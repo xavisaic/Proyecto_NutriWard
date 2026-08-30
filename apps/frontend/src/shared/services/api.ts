@@ -786,6 +786,86 @@ export interface TransferRequestList {
   page_size: number
 }
 
+export type MealTime = 'breakfast' | 'morning_snack' | 'lunch' | 'afternoon_snack' | 'dinner' | 'night_snack'
+
+export interface FoodCatalogItem {
+  id: string
+  code: string
+  display_name: string
+  item_type: string
+  default_unit: string
+  standard_recipe_note: string | null
+  is_active: boolean
+}
+
+export interface MealPlanItem {
+  id: string
+  catalog_item_id: string | null
+  catalog_code: string | null
+  display_name: string
+  is_custom: boolean
+  quantity: number | string
+  unit: string
+  instructions: string | null
+  sort_order: number
+}
+
+export interface MealPlanSlot {
+  id: string
+  meal_time: MealTime
+  fulfillment_status: 'ordered' | 'no_tray' | 'not_applicable' | 'hold'
+  is_special: boolean
+  special_instructions: string | null
+  items: MealPlanItem[]
+}
+
+export interface ModularPreparation {
+  id: string
+  preparation_type: 'protein_bolus' | 'modular_preparation'
+  product_name: string
+  powder_grams: number | string
+  diluent: string
+  dilution_volume_ml: number | string
+  units_per_delivery: number
+  meal_time: MealTime | null
+  scheduled_time: string | null
+  instructions: string | null
+  sort_order: number
+}
+
+export interface MealPlan {
+  id: string
+  admission_id: string
+  effective_from: string
+  effective_until: string | null
+  validity_mode: 'until_changed' | 'single_day' | 'date_range'
+  status: 'draft' | 'finalized' | 'superseded' | 'cancelled'
+  version: number
+  oral_enabled: boolean
+  enteral_enabled: boolean
+  parenteral_enabled: boolean
+  general_instructions: string | null
+  created_by_user_id: string
+  updated_by_user_id: string
+  finalized_by_user_id: string | null
+  finalized_at: string | null
+  created_at: string
+  updated_at: string
+  slots: MealPlanSlot[]
+  modular_preparations: ModularPreparation[]
+}
+
+export interface ProductionConsolidated {
+  service_date: string
+  generated_at: string
+  meal_time: MealTime | null
+  summaries: Array<{ service_id: string; service_name: string; meal_time: MealTime; standard_rations: number; special_rations: number; total_rations: number }>
+  preparations: Array<{ service_name: string; meal_time: MealTime; item_name: string; quantity: number | string; unit: string; patient_count: number }>
+  rations: Array<{ admission_id: string; patient_name: string; service_name: string; room_name: string; bed_name: string; meal_time: MealTime; ration_count: number; is_special: boolean; items: string[]; instructions: string | null; food_safety_alerts: string[] }>
+  modular_preparations: Array<{ admission_id: string; patient_name: string; service_name: string; room_name: string; bed_name: string; delivery: string; product_name: string; powder_grams: number | string; diluent: string; dilution_volume_ml: number | string; units_per_delivery: number; instructions: string | null }>
+  exceptions: Array<{ admission_id: string; patient_name: string; service_name: string | null; room_name: string | null; bed_name: string | null; reason: string }>
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -825,4 +905,13 @@ export async function apiRequest<T>(
     return undefined as T
   }
   return response.json() as Promise<T>
+}
+
+export async function apiDownload(path: string): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: 'include' })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new ApiError(response.status, payload?.detail ?? 'No fue posible descargar el archivo.')
+  }
+  return response.blob()
 }

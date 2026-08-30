@@ -12,12 +12,14 @@ from app.medication_catalog_2025 import (
     MEDICATION_CATALOG_2025,
     SOURCE_VERSION as MEDICATION_CATALOG_SOURCE_VERSION,
 )
+from app.food_regimen_catalog_2026 import REGIMEN_CATALOG_2026
 from app.models.care_unit import CareUnit
 from app.models.care_unit_layout_position import CareUnitLayoutPosition
 from app.models.admission import Admission
 from app.models.admission_status_history import AdmissionStatusHistory
 from app.models.common import utc_now
 from app.models.hospital_service import HospitalService
+from app.models.food_production import FoodRegimenCatalogItem
 from app.models.nutritionist_service_assignment import NutritionistServiceAssignment
 from app.models.patient import Patient
 from app.models.patient_location_history import PatientLocationHistory
@@ -32,6 +34,7 @@ from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.audit_service import record_audit
 from app.services.medication_catalog_service import normalize_catalog_text
+from app.services.food_production_service import catalog_code, normalize_catalog_name
 from app.services.user_service import normalize_email
 
 ROLE_DEFINITIONS = {
@@ -47,6 +50,33 @@ DEMO_USERS = {
     "alimentacion": ("alimentacion@nutriward.local", "Alimentación Demo"),
     "administrador": ("administrador@nutriward.local", "Administrador Demo"),
 }
+
+
+def _food_recipe_note(normalized_name: str) -> str | None:
+    notes: list[str] = []
+    if normalized_name.startswith("papilla"):
+        notes.append(
+            "Papilla sin suplementación estándar."
+            if "no suple" in normalized_name
+            else "Papilla con suplementación calórica y proteica estándar institucional."
+        )
+    if "s/s+2" in normalized_name:
+        notes.extend(("Sin sal.", "Entregar 2 g de sal aparte."))
+    elif "s/s+1" in normalized_name:
+        notes.extend(("Sin sal.", "Entregar 1 g de sal aparte."))
+    elif "s/s" in normalized_name:
+        notes.append("Sin sal.")
+    if "s/az" in normalized_name:
+        notes.append("Sin azúcar.")
+    if "s/r" in normalized_name:
+        notes.append("Sin residuos.")
+    if "no suple" in normalized_name and not normalized_name.startswith("papilla"):
+        notes.append("No suplementada.")
+    if normalized_name == "indicado" or normalized_name.startswith("indicado "):
+        notes.append("Régimen diabético.")
+    if "(merme)" in normalized_name:
+        notes.append("Agregado: mermelada.")
+    return " ".join(notes) or None
 
 SERVICE_DEFINITIONS = {
     "MED": ("Medicina", "Hospitalización médico-quirúrgica."),
@@ -145,6 +175,53 @@ ADMISSION_DEFINITIONS = (
 
 
 def seed_database(session: Session) -> None:
+    existing_food_catalog = {
+        row.code: row
+        for row in session.exec(select(FoodRegimenCatalogItem)).all()
+    }
+    no_tray_names = {
+        "ne",
+        "nutricion parenteral central",
+        "nutricion parenteral periferica",
+        "regimen 0",
+        "ayunas",
+    }
+    for source_row, display_name in REGIMEN_CATALOG_2026:
+        normalized = normalize_catalog_name(display_name)
+        if normalized in no_tray_names:
+            item_type = "modifier"
+        elif any(word in normalized for word in ("ensure", "fresubin", "glucerna", "supportan", "diben")):
+            item_type = "supplement"
+        elif any(word in normalized for word in ("jalea", "compota", "fruta")):
+            item_type = "dessert"
+        elif any(word in normalized for word in ("te", "leche", "chuno", "agua de hierba")):
+            item_type = "beverage"
+        elif any(word in normalized for word in ("pan", "galletas")):
+            item_type = "bread_or_cereal"
+        else:
+            item_type = "base_regimen"
+        code = catalog_code(display_name)
+        values = {
+            "display_name": display_name,
+            "normalized_name": normalized,
+            "item_type": item_type,
+            "default_unit": "porción",
+            "standard_recipe_note": _food_recipe_note(normalized),
+            "source_version": "regimenes-2026-v1",
+            "source_row": source_row,
+            "is_active": normalized not in no_tray_names,
+        }
+        row = existing_food_catalog.get(code)
+        if row is None:
+            row = FoodRegimenCatalogItem(code=code, **values)
+            session.add(row)
+            existing_food_catalog[code] = row
+        else:
+            for field, value in values.items():
+                setattr(row, field, value)
+            session.add(row)
+    session.flush()
+
     existing_catalog = {
         row.code: row
         for row in session.exec(select(MedicationCatalogItem)).all()

@@ -20,6 +20,13 @@ from app.models.clinical_context import (  # noqa: F401
     PatientConditionStatusHistory,
 )
 from app.models.hospital_service import HospitalService  # noqa: F401
+from app.models.food_production import (  # noqa: F401
+    FoodRegimenCatalogItem,
+    NutritionalMealPlan,
+    NutritionalMealPlanItem,
+    NutritionalMealPlanSlot,
+    NutritionalModularPreparation,
+)
 from app.models.nutritionist_service_assignment import (  # noqa: F401
     NutritionistServiceAssignment,
 )

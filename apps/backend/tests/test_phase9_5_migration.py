@@ -15,6 +15,11 @@ PHASE9_7_TABLES = {
     "admission_treatment_versions",
     "admission_treatment_reviews",
     "medication_catalog_items",
+    "food_regimen_catalog_items",
+    "nutritional_meal_plans",
+    "nutritional_meal_plan_slots",
+    "nutritional_meal_plan_items",
+    "nutritional_modular_preparations",
 }
 
 
@@ -87,4 +92,4 @@ def test_single_alembic_head_continues_after_phase9_5() -> None:
     )
     heads = [line for line in result.stdout.splitlines() if line.strip()]
     assert len(heads) == 1
-    assert "20260826_0016" in heads[0]
+    assert "20260829_0017" in heads[0]

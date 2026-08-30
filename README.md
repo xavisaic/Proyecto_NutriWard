@@ -1,6 +1,7 @@
 # Proyecto NutriWard
 
-Base técnica completa hasta Fase 9.6 para una plataforma web de gestión nutricional clínica.
+Plataforma web de gestión nutricional clínica con ficha estructurada, minuta diaria y
+consolidación operacional para Alimentación, implementada hasta Fase 10.
 
 Fase 9 incorpora la ficha nutricional clínica estructurada por hospitalización, con
 atenciones versionadas, evaluación, antropometría, tamizajes, requerimientos, PES,
@@ -76,6 +77,14 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
   versiones inmutables con fuente, autor y motivo de actualización.
 - Pegado rápido de listas convertido en filas estructuradas, con CIE-10 opcional.
 - Cambio libre de estados con fuente, motivo, concurrencia optimista e historial íntegro.
+- Minuta diaria por hospitalización con desayuno, colación AM, almuerzo, once, cena y
+  colación PM; permite combinar múltiples regímenes, agregados y preparaciones.
+- Ítems libres con cantidad y unidad, instrucciones especiales por tiempo y vías oral,
+  enteral y parenteral combinables.
+- Bolos de proteína y otras preparaciones modulares, con gramos de polvo, diluyente,
+  volumen, unidades y momento de entrega.
+- Consolidado para Alimentación por servicio y tiempo, con ubicación del paciente,
+  raciones especiales, alertas alimentarias y descarga Excel.
 
 ## Inicio con Docker
 
@@ -181,11 +190,11 @@ está disponible.
 
 ## Alcance
 
-Fase 9.6 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
+Fase 10 incluye identidad, RBAC, auditoría, infraestructura hospitalaria, pacientes,
 hospitalizaciones, mapa, traslados, ficha nutricional estructurada, contexto clínico y el
 registro longitudinal de alergias e intolerancias. La historia del episodio conserva el
 relato previo a la hospitalización sin convertirlo automáticamente en diagnósticos.
-Alimentación recibe en el mapa de camas
-una proyección mínima de seguridad que contiene sólo riesgos alimentarios activos. Raciones,
-cocina, integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
+Alimentación recibe una proyección operacional de las minutas finalizadas, las preparaciones
+enterales/modulares y los riesgos alimentarios activos, pero no la ficha clínica completa.
+La integración automática con TrakCare, etiquetas, curvas antropométricas calculadas,
 balance nitrogenado y hoja horaria completa permanecen fuera de alcance.

@@ -6,11 +6,7 @@ from sqlalchemy import create_engine, inspect, text
 from app.db.base import get_metadata
 
 
-PHASE9_7_TABLES = {
-    "admission_treatments",
-    "admission_treatment_versions",
-    "admission_treatment_reviews",
-    "medication_catalog_items",
+PHASE10_TABLES = {
     "food_regimen_catalog_items",
     "nutritional_meal_plans",
     "nutritional_meal_plan_slots",
@@ -32,13 +28,13 @@ def run_alembic(database_url: str, *arguments: str) -> None:
     )
 
 
-def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
-    database_path = tmp_path / "phase9-7-migration.db"
+def test_phase10_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
+    database_path = tmp_path / "phase10-migration.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
     engine = create_engine(database_url)
     metadata = get_metadata()
     previous_tables = [
-        table for name, table in metadata.tables.items() if name not in PHASE9_7_TABLES
+        table for name, table in metadata.tables.items() if name not in PHASE10_TABLES
     ]
     metadata.create_all(engine, tables=previous_tables)
     with engine.begin() as connection:
@@ -46,35 +42,35 @@ def test_phase9_7_migration_upgrade_downgrade_and_reupgrade(tmp_path) -> None:
             text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
         )
         connection.execute(
-            text("INSERT INTO alembic_version(version_num) VALUES ('20260817_0014')")
+            text("INSERT INTO alembic_version(version_num) VALUES ('20260826_0016')")
         )
 
     run_alembic(database_url, "upgrade", "head")
     inspector = inspect(engine)
-    assert PHASE9_7_TABLES <= set(inspector.get_table_names())
-    checks = {
+    assert PHASE10_TABLES <= set(inspector.get_table_names())
+    assert "ck_meal_plan_has_route" in {
+        row["name"] for row in inspector.get_check_constraints("nutritional_meal_plans")
+    }
+    assert "ck_meal_plan_item_source" in {
         row["name"]
-        for row in inspector.get_check_constraints("admission_treatment_versions")
+        for row in inspector.get_check_constraints("nutritional_meal_plan_items")
     }
-    assert {
-        "ck_treatment_version_order_status",
-        "ck_treatment_version_verification_status",
-        "ck_treatment_version_energy_non_negative",
-    } <= checks
-    indexes = {
-        row["name"] for row in inspector.get_indexes("admission_treatment_versions")
+    assert "ck_modular_preparation_schedule" in {
+        row["name"]
+        for row in inspector.get_check_constraints("nutritional_modular_preparations")
     }
-    assert "ix_treatment_versions_treatment_version" in indexes
-    foreign_keys = inspector.get_foreign_keys("admission_treatment_versions")
-    assert any(row["referred_table"] == "admission_treatments" for row in foreign_keys)
+    assert any(
+        row["referred_table"] == "admissions"
+        for row in inspector.get_foreign_keys("nutritional_meal_plans")
+    )
 
-    run_alembic(database_url, "downgrade", "20260817_0014")
-    assert not (PHASE9_7_TABLES & set(inspect(engine).get_table_names()))
+    run_alembic(database_url, "downgrade", "20260826_0016")
+    assert not (PHASE10_TABLES & set(inspect(engine).get_table_names()))
     run_alembic(database_url, "upgrade", "head")
-    assert PHASE9_7_TABLES <= set(inspect(engine).get_table_names())
+    assert PHASE10_TABLES <= set(inspect(engine).get_table_names())
 
 
-def test_single_alembic_head_is_phase9_7() -> None:
+def test_single_alembic_head_is_phase10() -> None:
     result = subprocess.run(
         ["alembic", "heads"],
         check=True,

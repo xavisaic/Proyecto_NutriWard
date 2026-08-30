@@ -2,11 +2,11 @@
 
 - **Estado**: Aprobado
 - **Fecha**: 2026-05-25
-- **Aclarado**: 2026-08-12 (Fase 7; raciones aún fuera de alcance)
+- **Implementado**: 2026-08-29 (Fase 10)
 
 ## Decisión
 
-La futura fuente operacional de raciones será la ubicación vigente de la
+La fuente operacional de raciones es la ubicación vigente de la
 hospitalización. Una solicitud en bandeja no crea una segunda ubicación.
 
 - En `pending_reception` o `pending_bed`, la ubicación y futura fuente continúan en
@@ -18,5 +18,5 @@ hospitalización. Una solicitud en bandeja no crea una segunda ubicación.
 
 ## Consecuencia
 
-La recepción anticipa trabajo sin contabilización doble. Fase 7 documenta esta regla,
-pero no implementa raciones, regímenes, prescripciones, consolidados ni etiquetas.
+La recepción anticipa trabajo sin contabilización doble. Fase 10 aplica esta regla al
+consolidado de bandejas y preparaciones modulares; las etiquetas permanecen fuera de alcance.

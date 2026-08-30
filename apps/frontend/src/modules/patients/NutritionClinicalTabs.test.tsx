@@ -174,13 +174,13 @@ describe('Ficha nutricional clínica', () => {
     expect(document.body.textContent).not.toContain('audit_logs')
   })
 
-  it('muestra advertencia TrakCare y alcance limitado de Minutas', async () => {
+  it('muestra advertencia TrakCare y deriva la minuta a su módulo operacional', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-labs')
       ? response({ items: [{ id: 'lab-1', sampled_at: '2026-08-13T08:00:00Z', test_name: 'Glicemia', value: '110', unit: 'mg/dL', reference_range: null, source: 'trakcare_manual' }], total: 1, page: 1, page_size: 50 })
       : response(emptyList))
     const { rerender } = render(<NutritionClinicalTab tab="labs" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
     expect(await screen.findByText('Dato transcrito manualmente desde TrakCare')).toBeInTheDocument()
     rerender(<NutritionClinicalTab tab="intake" admissionId="adm-1" historical={false} csrfToken="csrf" onChanged={vi.fn()} />)
-    expect(await screen.findByText(/Minutas, raciones y producción de cocina están pendientes/)).toBeInTheDocument()
+    expect(await screen.findByText(/La minuta diaria y el consolidado de producción se gestionan/)).toBeInTheDocument()
   })
 })

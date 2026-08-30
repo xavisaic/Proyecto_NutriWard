@@ -52,6 +52,7 @@ import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalT
 import { ClinicalContextSummaryCard, ClinicalContextTab } from './ClinicalContextTab'
 import { AllergySummaryAlert } from './AllergyIntoleranceSection'
 import { ActiveTreatmentsTab } from './ActiveTreatmentsTab'
+import { MealPlanTab } from './MealPlanTab'
 
 const CANONICAL_TABS = [
   'summary',
@@ -60,6 +61,7 @@ const CANONICAL_TABS = [
   'care',
   'assessment',
   'prescription',
+  'meal-plan',
   'intake',
   'labs',
   'nitrogen-balance',
@@ -78,7 +80,8 @@ const TAB_LABELS: Record<ChartTab, string> = {
   care: 'Evolución nutricional',
   assessment: 'Evaluación',
   prescription: 'Prescripción',
-  intake: 'Minutas e ingesta',
+  'meal-plan': 'Minuta diaria',
+  intake: 'Ingesta',
   labs: 'Exámenes',
   'nitrogen-balance': 'Balance nitrogenado',
   'hourly-sheet': 'Hoja horaria',
@@ -88,7 +91,7 @@ const TAB_LABELS: Record<ChartTab, string> = {
 }
 
 const CLINICAL_TABS = new Set<ChartTab>([
-  'clinical-context', 'treatments', 'care', 'assessment', 'prescription', 'intake', 'labs',
+  'clinical-context', 'treatments', 'care', 'assessment', 'prescription', 'meal-plan', 'intake', 'labs',
   'nitrogen-balance', 'hourly-sheet', 'logbook',
 ])
 
@@ -105,9 +108,13 @@ const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 't
     title: 'Prescripción nutricional',
     description: 'Este módulo concentrará la prescripción vigente y será la futura fuente de verdad operacional para regímenes y raciones.',
   },
+  'meal-plan': {
+    title: 'Minuta diaria',
+    description: 'Selección combinable de bandejas y preparaciones modulares para Alimentación.',
+  },
   intake: {
-    title: 'Minutas e ingesta',
-    description: 'Este espacio reunirá minutas, tiempos de comida y controles de ingesta del episodio.',
+    title: 'Control de ingesta',
+    description: 'Registro de lo efectivamente consumido por el paciente.',
   },
   labs: {
     title: 'Exámenes',
@@ -594,6 +601,9 @@ export function PatientChartPage({
           patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated}
           onChanged={() => void load()}
         />
+      ) : null}
+      {canReadClinical && admission && tab === 'meal-plan' ? (
+        <MealPlanTab admissionId={admission.id} historical={admission.is_historical} csrfToken={csrfToken} />
       ) : null}
       {tab === 'movements' ? <MovementsTab admissionId={admission?.id ?? null} /> : null}
       {tab === 'history' ? (

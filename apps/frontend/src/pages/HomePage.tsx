@@ -1,4 +1,4 @@
-import { Building2, LayoutDashboard, Settings, UsersRound } from 'lucide-react'
+import { Building2, LayoutDashboard, Settings, UtensilsCrossed, UsersRound } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useLocation, useRoute, useSearch } from 'wouter'
 
@@ -8,14 +8,16 @@ import { BedMapDashboard } from '../modules/bed-map/BedMapDashboard'
 import { HospitalDashboard } from '../modules/hospital/HospitalDashboard'
 import { PatientChartPage } from '../modules/patients/PatientChartPage'
 import { PatientsDashboard } from '../modules/patients/PatientsDashboard'
+import { FoodProductionDashboard } from '../modules/food-production/FoodProductionDashboard'
 import { AppNavigationItem, AppShell } from '../shared/layout'
 
-type ModuleId = 'hospital' | 'bed-map' | 'patients' | 'administration'
+type ModuleId = 'hospital' | 'bed-map' | 'patients' | 'food-production' | 'administration'
 
 const MODULE_PATHS: Record<ModuleId, string> = {
   hospital: '/hospital',
   'bed-map': '/bed-map',
   patients: '/patients',
+  'food-production': '/food-production',
   administration: '/administration',
 }
 
@@ -40,6 +42,7 @@ export function HomePage() {
   const canReadBedMap = user.roles.some((role) =>
     ['administrador', 'jefatura', 'nutricionista', 'alimentacion'].includes(role),
   )
+  const canReadFoodProduction = user.roles.some((role) => role === 'jefatura' || role === 'alimentacion')
   const defaultPath = user.roles.includes('alimentacion') && !canReadPatients
     ? '/bed-map'
     : user.roles.includes('nutricionista') && !canReadAdministration
@@ -54,10 +57,15 @@ export function HomePage() {
     if (location.startsWith('/administration') && !canReadAdministration) {
       navigate(defaultPath, { replace: true })
     }
-  }, [canReadAdministration, canReadPatients, defaultPath, location, navigate])
+    if (location.startsWith('/food-production') && !canReadFoodProduction) {
+      navigate(defaultPath, { replace: true })
+    }
+  }, [canReadAdministration, canReadFoodProduction, canReadPatients, defaultPath, location, navigate])
 
   const activeModule: ModuleId = location.startsWith('/patients')
     ? 'patients'
+    : location.startsWith('/food-production')
+      ? 'food-production'
     : location.startsWith('/bed-map')
       ? 'bed-map'
       : location.startsWith('/administration')
@@ -83,13 +91,19 @@ export function HomePage() {
       description: 'Fichas y hospitalizaciones',
       icon: UsersRound,
     }] : []),
+    ...(canReadFoodProduction ? [{
+      id: 'food-production' as const,
+      label: 'Producción alimentaria',
+      description: 'Raciones y preparaciones NE',
+      icon: UtensilsCrossed,
+    }] : []),
     ...(canReadAdministration ? [{
       id: 'administration' as const,
       label: 'Administración',
       description: 'Usuarios y asignaciones',
       icon: Settings,
     }] : []),
-  ], [canReadAdministration, canReadBedMap, canReadPatients])
+  ], [canReadAdministration, canReadBedMap, canReadFoodProduction, canReadPatients])
 
   function openPatient(patientId: string, admissionId?: string) {
     const params = new URLSearchParams()
@@ -139,6 +153,8 @@ export function HomePage() {
         onSearchChange={(next) => navigate(`/patients${next ? `?${next}` : ''}`, { replace: true })}
       />
     )
+  } else if (activeModule === 'food-production') {
+    content = <FoodProductionDashboard />
   } else {
     content = <AdministrationDashboard canManage={canDelete} csrfToken={session!.csrf_token} />
   }
