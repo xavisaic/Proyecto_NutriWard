@@ -2,14 +2,17 @@
 
 La navegación principal está gobernada por URL. `/patients` muestra el listado y
 `/patients/:patient_id/:tab?admission_id=...` abre la ficha sin duplicar `AppShell`.
-Resumen, Evolución nutricional, Evaluación, Prescripción, Minutas e ingesta, Exámenes,
-Movimientos e Historial son funcionales. Evolución nutricional ofrece evaluación inicial,
-seguimiento rápido y acción específica. Estos dos últimos flujos abren sólo los módulos
-seleccionados. Balance nitrogenado, Hoja horaria y Bitácora continúan como placeholders.
+Resumen, Evaluación clínica, Antropometría y composición corporal, Tamizaje, Prescripción,
+Minutas e ingesta, Exámenes, Movimientos e Historial son funcionales. El botón global
+**Registrar** ofrece evaluación inicial, seguimiento rápido y acción específica; estos dos
+últimos flujos abren sólo los módulos seleccionados. La cronología auditable de evoluciones
+se consulta en **Actividad nutricional**, dentro de Resumen. Balance nitrogenado, Hoja
+horaria y Bitácora continúan como placeholders.
 
 Administrador no ve pestañas ni resumen nutricional. Alimentación no accede a la ficha.
-La línea de tiempo muestra qué cambió en cada evolución. Evaluación, Prescripción, Ingesta
-y Exámenes permiten iniciar actualizaciones directamente. El editor guarda borradores sólo
+La línea de tiempo muestra qué cambió en cada evolución. Evaluación, Antropometría,
+Tamizaje, Prescripción, Ingesta y Exámenes permiten iniciar actualizaciones directamente.
+El editor guarda borradores sólo
 mediante acción explícita, advierte cambios sin guardar, confirma antes de finalizar,
 permite cancelar borradores y muestra conflictos de versión.
 

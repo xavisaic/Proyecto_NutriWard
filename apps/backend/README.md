@@ -9,7 +9,8 @@ separada, autorizada sólo para `nutricionista` y `jefatura`:
 - `GET|PATCH /api/v1/nutrition-care-encounters/{encounter_id}`
 - `POST /api/v1/nutrition-care-encounters/{encounter_id}/finalize|correct|cancel`
 - `GET /api/v1/admissions/{admission_id}/nutrition-latest`
-- `GET /api/v1/admissions/{admission_id}/nutrition-assessments|nutrition-prescriptions|nutrition-intake|nutrition-labs`
+- `GET /api/v1/admissions/{admission_id}/nutrition-assessments|nutrition-anthropometry|nutrition-screenings`
+- `GET /api/v1/admissions/{admission_id}/nutrition-prescriptions|nutrition-intake|nutrition-labs`
 - `GET /api/v1/admissions/{admission_id}/clinical-context`
 - `POST|PATCH /api/v1/admissions/{admission_id}/clinical-history`
 - `POST /api/v1/patients/{patient_id}/conditions`
@@ -43,6 +44,10 @@ reevaluaciones y acciones específicas requieren contexto y síntesis, pero pued
 un subconjunto de módulos. `nutrition-latest` resuelve cada dato vigente desde la evolución
 finalizada más reciente que realmente lo modificó, evitando que un control parcial oculte
 una prescripción, un PES o un tamizaje previo.
+
+Antropometría y tamizaje exponen además proyecciones longitudinales propias. La primera
+combina mediciones simples y sesiones avanzadas identificadas por `record_type`; la segunda
+incluye las respuestas versionadas necesarias para reconstruir el resultado publicado.
 
 Las mediciones avanzadas se guardan por sesión con protocolo, dispositivo, condiciones,
 valores originales y resultados derivados. El backend calcula el máximo de tres intentos

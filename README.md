@@ -64,6 +64,9 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 - Evoluciones nutricionales modulares en borrador, finalizadas, correctivas o canceladas,
   con evaluación inicial, seguimiento rápido, acciones específicas, concurrencia
   optimista e inmutabilidad clínica.
+- Navegación clínica por proyecciones: Evaluación clínica, Antropometría y composición
+  corporal, Tamizaje, Prescripción, Ingesta y Exámenes; la actividad auditable permanece
+  accesible desde Resumen y cada acción sigue creando una evolución versionada.
 - Ficha estructurada para adultos, pediatría, neonatología y embarazo.
 - Antropometría tipada, IMC y cambio de peso calculados en backend.
 - Circunferencias de pantorrilla, brazo y cintura, dinamometría bilateral, cuatro pliegues

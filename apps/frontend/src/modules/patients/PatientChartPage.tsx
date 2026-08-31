@@ -48,7 +48,12 @@ import {
 } from '../../shared/services/api'
 import { IdentityDialog, LocationDialog } from './PatientsDashboard'
 import { MovePatientDialog } from '../transfers/Transfers'
-import { NutritionClinicalTab, NutritionSummaryCard } from './NutritionClinicalTabs'
+import {
+  NutritionActivityCard,
+  NutritionClinicalTab,
+  NutritionRegisterAction,
+  NutritionSummaryCard,
+} from './NutritionClinicalTabs'
 import { ClinicalContextSummaryCard, ClinicalContextTab } from './ClinicalContextTab'
 import { AllergySummaryAlert } from './AllergyIntoleranceSection'
 import { ActiveTreatmentsTab } from './ActiveTreatmentsTab'
@@ -58,8 +63,9 @@ const CANONICAL_TABS = [
   'summary',
   'clinical-context',
   'treatments',
-  'care',
   'assessment',
+  'anthropometry',
+  'screening',
   'prescription',
   'meal-plan',
   'intake',
@@ -77,8 +83,9 @@ const TAB_LABELS: Record<ChartTab, string> = {
   summary: 'Resumen',
   'clinical-context': 'Diagnósticos y antecedentes',
   treatments: 'Tratamientos activos',
-  care: 'Evolución nutricional',
-  assessment: 'Evaluación',
+  assessment: 'Evaluación clínica',
+  anthropometry: 'Antropometría y composición corporal',
+  screening: 'Tamizaje',
   prescription: 'Prescripción',
   'meal-plan': 'Minuta diaria',
   intake: 'Ingesta',
@@ -91,35 +98,11 @@ const TAB_LABELS: Record<ChartTab, string> = {
 }
 
 const CLINICAL_TABS = new Set<ChartTab>([
-  'clinical-context', 'treatments', 'care', 'assessment', 'prescription', 'meal-plan', 'intake', 'labs',
+  'clinical-context', 'treatments', 'assessment', 'anthropometry', 'screening', 'prescription', 'meal-plan', 'intake', 'labs',
   'nitrogen-balance', 'hourly-sheet', 'logbook',
 ])
 
-const PLACEHOLDERS: Record<Exclude<ChartTab, 'summary' | 'clinical-context' | 'treatments' | 'movements' | 'history'>, { title: string; description: string }> = {
-  care: {
-    title: 'Evolución nutricional',
-    description: 'Una atención será una instancia temporal de trabajo nutricional vinculada al episodio. Podrá agrupar evaluaciones, cambios de prescripción, revisiones de ingesta o notas relacionadas. No implica presencia física y no registra modalidad presencial o remota.',
-  },
-  assessment: {
-    title: 'Evaluación nutricional',
-    description: 'Aquí se implementará la evaluación clínica estructurada, sus cálculos, tamizajes, diagnósticos PES, firma y versiones, siempre vinculada al episodio seleccionado.',
-  },
-  prescription: {
-    title: 'Prescripción nutricional',
-    description: 'Este módulo concentrará la prescripción vigente y será la futura fuente de verdad operacional para regímenes y raciones.',
-  },
-  'meal-plan': {
-    title: 'Minuta diaria',
-    description: 'Selección combinable de bandejas y preparaciones modulares para Alimentación.',
-  },
-  intake: {
-    title: 'Control de ingesta',
-    description: 'Registro de lo efectivamente consumido por el paciente.',
-  },
-  labs: {
-    title: 'Exámenes',
-    description: 'Este módulo presentará resultados relevantes fechados y trazables, sin mezclar datos clínicos en observaciones libres.',
-  },
+const PLACEHOLDERS: Record<'nitrogen-balance' | 'hourly-sheet' | 'logbook', { title: string; description: string }> = {
   'nitrogen-balance': {
     title: 'Balance nitrogenado',
     description: 'Aquí se calculará y conservará el balance nitrogenado cuando estén disponibles los datos requeridos.',
@@ -212,7 +195,7 @@ function TimelineList({ events }: { events: OperationalTimelineEvent[] }) {
   )
 }
 
-function SummaryTab({ summary, showNutrition }: { summary: PatientChartSummary, showNutrition: boolean }) {
+function SummaryTab({ summary, showNutrition, csrfToken, nutritionRefresh, onNutritionChanged }: { summary: PatientChartSummary; showNutrition: boolean; csrfToken: string; nutritionRefresh: number; onNutritionChanged: () => void }) {
   const admission = summary.selected_admission
   return (
     <Stack spacing={2.5}>
@@ -268,7 +251,8 @@ function SummaryTab({ summary, showNutrition }: { summary: PatientChartSummary, 
           : <EmptyState title="Sin movimientos" description="El episodio no tiene movimientos operacionales registrados." />}
       </SectionCard>
       {showNutrition && admission ? <ClinicalContextSummaryCard admissionId={admission.id} /> : null}
-      {showNutrition && admission ? <NutritionSummaryCard admissionId={admission.id} /> : null}
+      {showNutrition && admission ? <NutritionSummaryCard admissionId={admission.id} refreshKey={nutritionRefresh} /> : null}
+      {showNutrition && admission ? <NutritionActivityCard admissionId={admission.id} historical={admission.is_historical} csrfToken={csrfToken} patientDateOfBirth={summary.patient.date_of_birth} patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated} refreshKey={nutritionRefresh} onChanged={onNutritionChanged} /> : null}
     </Stack>
   )
 }
@@ -393,6 +377,7 @@ export function PatientChartPage({
   const [identityOpen, setIdentityOpen] = useState(false)
   const [locationOpen, setLocationOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
+  const [nutritionRefresh, setNutritionRefresh] = useState(0)
   const sequence = useRef(0)
   const canMutate = roles.some((role) => role === 'jefatura' || role === 'nutricionista')
   const canReadClinical = canMutate
@@ -460,6 +445,11 @@ export function PatientChartPage({
     .map((item) => [item.current_location!.care_unit_id, item.admission_identifier]))
   const canAct = canMutate && !merged && Boolean(detail) && (!admission || !admission.is_historical)
 
+  function nutritionChanged() {
+    setNutritionRefresh((value) => value + 1)
+    void load()
+  }
+
   async function createAdmission() {
     await apiRequest('/admissions', { method: 'POST', body: JSON.stringify({ patient_id: patientId }) }, csrfToken)
     await load()
@@ -492,6 +482,9 @@ export function PatientChartPage({
         actions={(
           <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
             <Button startIcon={<ArrowLeft size={17} />} onClick={() => onNavigate(returnTo)}>Volver al listado</Button>
+            {canAct && admission?.status === 'active' && (
+              <NutritionRegisterAction admissionId={admission.id} csrfToken={csrfToken} patientDateOfBirth={summary.patient.date_of_birth} patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated} onSaved={nutritionChanged} />
+            )}
             {canAct && detail && detail.identity_status !== 'identified' && (
               <Button variant="outlined" onClick={() => setIdentityOpen(true)}>Identificar paciente</Button>
             )}
@@ -574,7 +567,7 @@ export function PatientChartPage({
           {allowedTabs.map((item) => <Tab key={item} value={item} label={TAB_LABELS[item]} />)}
         </Tabs>
       </Box>
-      {tab === 'summary' ? <SummaryTab summary={summary} showNutrition={canReadClinical} /> : null}
+      {tab === 'summary' ? <SummaryTab summary={summary} showNutrition={canReadClinical} csrfToken={csrfToken} nutritionRefresh={nutritionRefresh} onNutritionChanged={nutritionChanged} /> : null}
       {canReadClinical && admission && tab === 'clinical-context' ? (
         <ClinicalContextTab
           admissionId={admission.id}
@@ -591,15 +584,16 @@ export function PatientChartPage({
           csrfToken={csrfToken}
         />
       ) : null}
-      {canReadClinical && admission && ['care', 'assessment', 'prescription', 'intake', 'labs'].includes(tab) ? (
+      {canReadClinical && admission && ['assessment', 'anthropometry', 'screening', 'prescription', 'intake', 'labs'].includes(tab) ? (
         <NutritionClinicalTab
-          tab={tab as 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'}
+          key={`${admission.id}:${tab}:${nutritionRefresh}`}
+          tab={tab as 'assessment' | 'anthropometry' | 'screening' | 'prescription' | 'intake' | 'labs'}
           admissionId={admission.id}
           historical={admission.is_historical}
           csrfToken={csrfToken}
           patientDateOfBirth={summary.patient.date_of_birth}
           patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated}
-          onChanged={() => void load()}
+          onChanged={nutritionChanged}
         />
       ) : null}
       {canReadClinical && admission && tab === 'meal-plan' ? (

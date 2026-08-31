@@ -67,9 +67,12 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('Ficha del paciente', () => {
   it('muestra resumen, cabecera, episodios y movimientos recientes', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-latest')
-      ? response({ admission_id: 'admission-active', latest_encounter: null, latest_screening: null, nutritional_status: null, active_diagnoses: [], current_prescription: null, adopted_requirements: [], active_alerts: [], suggested_reassessment_at: null })
-      : response(summary))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('/nutrition-latest')) return response({ admission_id: 'admission-active', latest_encounter: null, latest_screening: null, nutritional_status: null, active_diagnoses: [], current_prescription: null, adopted_requirements: [], active_alerts: [], suggested_reassessment_at: null })
+      if (url.includes('/nutrition-care-encounters')) return response({ items: [], total: 0, page: 1, page_size: 20 })
+      return response(summary)
+    })
     renderChart()
     expect(await screen.findByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Episodio' })).toHaveTextContent('ADM-ACTIVA')
@@ -103,12 +106,12 @@ describe('Ficha del paciente', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/operational-timeline'))).toBe(true))
   })
 
-  it('presenta la evolución modular y diferencia Bitácora', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).includes('/nutrition-care-encounters')
-      ? response({ items: [], total: 0, page: 1, page_size: 20 })
-      : response(summary))
-    renderChart('care')
-    expect(await screen.findByText(/Línea de tiempo clínica orientada a cambios/)).toBeInTheDocument()
+  it('redirige la antigua pestaña de evolución a Resumen y diferencia Bitácora', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(summary))
+    const navigate = renderChart('care')
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(
+      expect.stringContaining('/patients/patient-1/summary'), true,
+    ))
     cleanup()
     renderChart('logbook')
     expect(await screen.findByText(/independiente de la auditoría técnica/)).toBeInTheDocument()

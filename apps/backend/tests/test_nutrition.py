@@ -485,6 +485,21 @@ def test_advanced_measurements_calculate_protocol_results_and_preserve_device_da
         json={"version": 1},
         headers=clinical_headers,
     ).status_code == 200
+    anthropometry_projection = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-anthropometry"
+    ).json()
+    projected_handgrip = next(
+        row
+        for row in anthropometry_projection["items"]
+        if row["record_type"] == "advanced_session"
+        and row["session_type"] == "handgrip"
+    )
+    assert len(projected_handgrip["values"]) == 9
+    assert any(
+        row["measurement_code"] == "handgrip_max"
+        and row["value_nature"] == "calculated"
+        for row in projected_handgrip["values"]
+    )
     summaries = client.get(
         f"/api/v1/admissions/{admission.id}/nutrition-care-encounters"
     ).json()["items"]
@@ -563,6 +578,16 @@ def test_anthropometry_requirements_prescription_intake_labs_and_alerts(client, 
         json={"version": 2}, headers=headers,
     )
     assert finalized.status_code == 200
+    anthropometry_projection = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-anthropometry"
+    ).json()
+    assert anthropometry_projection["total"] >= 5
+    assert anthropometry_projection["items"][0]["record_type"] == "measurement"
+    screening_projection = client.get(
+        f"/api/v1/admissions/{admission.id}/nutrition-screenings"
+    ).json()
+    assert screening_projection["total"] >= 1
+    assert screening_projection["items"][0]["answers"]
     assert client.get(f"/api/v1/admissions/{admission.id}/nutrition-prescriptions").json()["total"] >= 1
     assert client.get(f"/api/v1/admissions/{admission.id}/nutrition-intake").json()["items"][0]["consumed_percentage"] == "75.00"
     lab = client.get(f"/api/v1/admissions/{admission.id}/nutrition-labs").json()["items"][0]

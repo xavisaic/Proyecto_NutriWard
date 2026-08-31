@@ -12,9 +12,9 @@ proyección longitudinal para que el registro cotidiano sea más rápido y segur
 
 ## Modelo de interacción
 
-La ruta técnica `care` y los contratos de atenciones se mantienen para no romper enlaces
-ni integraciones, mientras la interfaz pasa a llamarse **Evolución nutricional**. Al crear
-un registro se ofrecen tres modos:
+Los contratos de atenciones se mantienen para no romper integraciones. La pestaña técnica
+`care` dejó de ser parte de la navegación principal y sus enlaces anteriores redirigen al
+Resumen. El botón global **Registrar** ofrece tres modos:
 
 1. **Seguimiento rápido**: parte con contexto, evaluación clínica, ingesta/exámenes y
    seguimiento; el profesional puede agregar o quitar módulos opcionales.
@@ -27,13 +27,16 @@ navegación consideran únicamente las secciones elegidas.
 
 ## Acceso directo y línea de tiempo
 
-Evaluación, Prescripción, Minutas e ingesta y Exámenes incluyen acciones directas para
-actualizar su módulo. Cada acción sigue generando una evolución clínica con autor, fecha,
-estado, versión y síntesis; no crea datos sin trazabilidad.
+Evaluación clínica, Antropometría y composición corporal, Tamizaje, Prescripción, Minutas e
+ingesta y Exámenes incluyen acciones directas para actualizar su módulo. Cada acción sigue
+generando una evolución clínica con autor, fecha, estado, versión y síntesis; no crea datos
+sin trazabilidad. Evaluación clínica concentra también requerimientos, diagnósticos PES,
+objetivos y seguimiento.
 
-La línea de tiempo muestra tipo, estado, fecha, profesional, síntesis y etiquetas de los
-módulos documentados. Permite abrir el contenido estructurado completo, continuar o
-cancelar borradores y corregir registros finalizados mediante una nueva versión enlazada.
+La línea de tiempo **Actividad nutricional** vive en Resumen y muestra tipo, estado, fecha,
+profesional, síntesis y etiquetas de los módulos documentados. Permite abrir el contenido
+estructurado completo, continuar o cancelar borradores y corregir registros finalizados
+mediante una nueva versión enlazada.
 
 ## Reglas de finalización
 

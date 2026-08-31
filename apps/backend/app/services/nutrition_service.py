@@ -1212,8 +1212,51 @@ def projection(session: Session, admission_id: uuid.UUID, kind: str, page: int, 
     final_ids = [row.id for row in finals]
     if not final_ids:
         return NutritionProjectionList(items=[], total=0, page=page, page_size=page_size)
+
+    if kind == "anthropometry":
+        measurements = list(
+            session.exec(
+                select(NutritionalAnthropometricMeasurement)
+                .where(NutritionalAnthropometricMeasurement.encounter_id.in_(final_ids))
+                .order_by(
+                    NutritionalAnthropometricMeasurement.measured_at.desc(),
+                    NutritionalAnthropometricMeasurement.id.desc(),
+                )
+            ).all()
+        )
+        advanced_sessions = list(
+            session.exec(
+                select(NutritionalMeasurementSession)
+                .where(NutritionalMeasurementSession.encounter_id.in_(final_ids))
+                .order_by(
+                    NutritionalMeasurementSession.measured_at.desc(),
+                    NutritionalMeasurementSession.id.desc(),
+                )
+            ).all()
+        )
+        items = [
+            {**_dump(row), "record_type": "measurement"} for row in measurements
+        ] + [
+            {
+                **_advanced_measurement_read(session, row),
+                "record_type": "advanced_session",
+            }
+            for row in advanced_sessions
+        ]
+        items.sort(
+            key=lambda item: (item["measured_at"], str(item["id"])), reverse=True
+        )
+        start = (page - 1) * page_size
+        return NutritionProjectionList(
+            items=items[start:start + page_size],
+            total=len(items),
+            page=page,
+            page_size=page_size,
+        )
+
     model, date_field = {
         "assessments": (NutritionalAssessment, NutritionalAssessment.observed_at),
+        "screenings": (NutritionalScreening, NutritionalScreening.applied_at),
         "prescriptions": (NutritionalPrescription, NutritionalPrescription.effective_from),
         "intake": (NutritionalIntakeRecord, NutritionalIntakeRecord.intake_date),
         "labs": (NutritionalLabObservation, NutritionalLabObservation.sampled_at),
@@ -1221,7 +1264,14 @@ def projection(session: Session, admission_id: uuid.UUID, kind: str, page: int, 
     rows = list(session.exec(select(model).where(model.encounter_id.in_(final_ids)).order_by(date_field.desc(), model.id.desc())).all())
     start = (page - 1) * page_size
     page_rows = rows[start:start + page_size]
-    items = [_prescription_with_meals(session, row) if kind == "prescriptions" else _dump(row) for row in page_rows]
+    items = [
+        _prescription_with_meals(session, row)
+        if kind == "prescriptions"
+        else _screening_with_answers(session, row)
+        if kind == "screenings"
+        else _dump(row)
+        for row in page_rows
+    ]
     return NutritionProjectionList(items=items, total=len(rows), page=page, page_size=page_size)
 
 

@@ -167,6 +167,16 @@ def read_assessments(admission_id: uuid.UUID, _: ClinicalReader, session: Databa
     return _projection("assessments", admission_id, session, page, page_size)
 
 
+@router.get("/admissions/{admission_id}/nutrition-anthropometry", response_model=NutritionProjectionList)
+def read_anthropometry(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=100)) -> NutritionProjectionList:
+    return _projection("anthropometry", admission_id, session, page, page_size)
+
+
+@router.get("/admissions/{admission_id}/nutrition-screenings", response_model=NutritionProjectionList)
+def read_screenings(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)) -> NutritionProjectionList:
+    return _projection("screenings", admission_id, session, page, page_size)
+
+
 @router.get("/admissions/{admission_id}/nutrition-prescriptions", response_model=NutritionProjectionList)
 def read_prescriptions(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)) -> NutritionProjectionList:
     return _projection("prescriptions", admission_id, session, page, page_size)

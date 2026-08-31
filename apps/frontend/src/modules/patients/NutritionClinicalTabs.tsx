@@ -42,7 +42,7 @@ import {
   NutritionProjectionList,
 } from '../../shared/services/api'
 
-type ClinicalTab = 'care' | 'assessment' | 'prescription' | 'intake' | 'labs'
+type ClinicalTab = 'assessment' | 'anthropometry' | 'screening' | 'prescription' | 'intake' | 'labs'
 type EvolutionMode = 'initial' | 'follow_up' | 'specific'
 
 const SECTIONS = [
@@ -960,11 +960,36 @@ function EvolutionStartDialog({ open, onClose, onSelect }: {
   </Dialog>
 }
 
-function CareTab({ admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, onChanged: () => void }) {
-  const [refresh, setRefresh] = useState(0)
-  const { data, loading, error, reload } = useClinicalData<NutritionEncounterList>(`/admissions/${admissionId}/nutrition-care-encounters`, refresh)
-  const [editorOpen, setEditorOpen] = useState(false)
+export function NutritionRegisterAction({ admissionId, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onSaved }: { admissionId: string; csrfToken: string; patientDateOfBirth?: string | null; patientAgeIsEstimated?: boolean; onSaved: () => void }) {
   const [startOpen, setStartOpen] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [mode, setMode] = useState<EvolutionMode>('follow_up')
+  function start(modeChoice: EvolutionMode) {
+    setMode(modeChoice)
+    setStartOpen(false)
+    setEditorOpen(true)
+  }
+  return <>
+    <Button variant="contained" startIcon={<ClipboardPlus size={17} />} onClick={() => setStartOpen(true)}>Registrar</Button>
+    <EvolutionStartDialog open={startOpen} onClose={() => setStartOpen(false)} onSelect={start} />
+    <NutritionEditor
+      open={editorOpen}
+      record={null}
+      admissionId={admissionId}
+      csrfToken={csrfToken}
+      mode={mode}
+      patientDateOfBirth={patientDateOfBirth}
+      patientAgeIsEstimated={patientAgeIsEstimated}
+      onClose={() => setEditorOpen(false)}
+      onSaved={() => { setEditorOpen(false); onSaved() }}
+    />
+  </>
+}
+
+export function NutritionActivityCard({ admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, refreshKey = 0, onChanged }: { admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, refreshKey?: number, onChanged: () => void }) {
+  const [refresh, setRefresh] = useState(0)
+  const { data, loading, error, reload } = useClinicalData<NutritionEncounterList>(`/admissions/${admissionId}/nutrition-care-encounters`, refresh + refreshKey)
+  const [editorOpen, setEditorOpen] = useState(false)
   const [mode, setMode] = useState<EvolutionMode>('follow_up')
   const [selected, setSelected] = useState<NutritionEncounterRead | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -975,9 +1000,6 @@ function CareTab({ admissionId, historical, csrfToken, patientDateOfBirth, patie
       setSelected(record); setEditorOpen(edit)
     }
     catch (caught) { setActionError(clinicalError(caught)) }
-  }
-  function start(modeChoice: EvolutionMode) {
-    setMode(modeChoice); setSelected(null); setStartOpen(false); setEditorOpen(true)
   }
   async function correct(id: string, version: number) {
     const reason = window.prompt('Motivo de corrección (obligatorio):')
@@ -1003,11 +1025,10 @@ function CareTab({ admissionId, historical, csrfToken, patientDateOfBirth, patie
   return <Stack spacing={2}>
     {historical && <Alert severity="info">Episodio histórico · Solo lectura. Las evoluciones finalizadas permanecen disponibles.</Alert>}
     {actionError && <Alert severity="error">{actionError}</Alert>}
-    <SectionCard title="Evolución nutricional" description="Línea de tiempo clínica orientada a cambios. Cada evolución publica únicamente los módulos confirmados." actions={!historical ? <Button variant="contained" startIcon={<ClipboardPlus size={17} />} onClick={() => setStartOpen(true)}>Registrar evolución</Button> : undefined}>
-      {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando evoluciones" rows={3} /> : !data?.items.length ? <EmptyState title="Sin evoluciones nutricionales" description="No hay documentación nutricional para esta hospitalización." action={!historical ? <Button onClick={() => setStartOpen(true)}>Registrar primera evaluación</Button> : undefined} /> : <Stack spacing={0}>{data.items.map((item, index) => <Box key={item.id} sx={{ position: 'relative', pl: 3, pb: index === data.items.length - 1 ? 0 : 2.5, '&::before': index === data.items.length - 1 ? undefined : { content: '""', position: 'absolute', left: 7, top: 16, bottom: 0, borderLeft: 2, borderColor: 'divider' } }}><Box sx={{ position: 'absolute', left: 0, top: 8, width: 16, height: 16, borderRadius: '50%', bgcolor: item.status === 'draft' ? 'warning.main' : item.status === 'cancelled' ? 'text.disabled' : 'success.main', border: 3, borderColor: 'background.paper' }} /><Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box sx={{ minWidth: 0 }}><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Typography fontWeight={800}>{TYPE_LABELS[item.encounter_type]}</Typography><StatusBadge label={STATUS_LABELS[item.status]} tone={item.status === 'draft' ? 'warning' : item.status === 'cancelled' ? 'neutral' : 'success'} /></Stack><Typography variant="body2">{formatDate(item.encounter_datetime)} · {item.author_name}</Typography><Typography variant="body2" color="text.secondary">{item.clinical_summary || 'Borrador sin síntesis clínica'}</Typography><Stack direction="row" useFlexGap flexWrap="wrap" gap={0.5} mt={1}>{(item.documented_sections ?? []).map((section) => <Chip key={section} size="small" variant="outlined" label={SECTION_SUMMARY_LABELS[section] || section} />)}</Stack></Box><Stack direction="row" gap={1} flexWrap="wrap" alignItems="flex-start"><Button size="small" startIcon={<ExternalLink size={15} />} onClick={() => void openRecord(item.id)}>Ver</Button>{item.status === 'draft' && !historical && <><Button size="small" startIcon={<Pencil size={15} />} onClick={() => void openRecord(item.id, true)}>Continuar</Button><Button size="small" color="error" onClick={() => void cancelDraft(item.id, item.version)}>Cancelar</Button></>}{(item.status === 'finalized' || item.status === 'corrected') && !historical && <Button size="small" startIcon={<RotateCcw size={15} />} onClick={() => void correct(item.id, item.version)}>Corregir</Button>}</Stack></Stack></Box></Box>)}</Stack>}
+    <SectionCard title="Actividad nutricional" description="Cronología auditable de registros, borradores y correcciones. Las pestañas clínicas muestran la información vigente de cada módulo.">
+      {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando actividad nutricional" rows={3} /> : !data?.items?.length ? <EmptyState title="Sin actividad nutricional" description="No hay documentación nutricional para esta hospitalización." /> : <Stack spacing={0}>{data.items.map((item, index) => <Box key={item.id} sx={{ position: 'relative', pl: 3, pb: index === data.items.length - 1 ? 0 : 2.5, '&::before': index === data.items.length - 1 ? undefined : { content: '""', position: 'absolute', left: 7, top: 16, bottom: 0, borderLeft: 2, borderColor: 'divider' } }}><Box sx={{ position: 'absolute', left: 0, top: 8, width: 16, height: 16, borderRadius: '50%', bgcolor: item.status === 'draft' ? 'warning.main' : item.status === 'cancelled' ? 'text.disabled' : 'success.main', border: 3, borderColor: 'background.paper' }} /><Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2}><Box sx={{ minWidth: 0 }}><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Typography fontWeight={800}>{TYPE_LABELS[item.encounter_type]}</Typography><StatusBadge label={STATUS_LABELS[item.status]} tone={item.status === 'draft' ? 'warning' : item.status === 'cancelled' ? 'neutral' : 'success'} /></Stack><Typography variant="body2">{formatDate(item.encounter_datetime)} · {item.author_name}</Typography><Typography variant="body2" color="text.secondary">{item.clinical_summary || 'Borrador sin síntesis clínica'}</Typography><Stack direction="row" useFlexGap flexWrap="wrap" gap={0.5} mt={1}>{(item.documented_sections ?? []).map((section) => <Chip key={section} size="small" variant="outlined" label={SECTION_SUMMARY_LABELS[section] || section} />)}</Stack></Box><Stack direction="row" gap={1} flexWrap="wrap" alignItems="flex-start"><Button size="small" startIcon={<ExternalLink size={15} />} onClick={() => void openRecord(item.id)}>Ver</Button>{item.status === 'draft' && !historical && <><Button size="small" startIcon={<Pencil size={15} />} onClick={() => void openRecord(item.id, true)}>Continuar</Button><Button size="small" color="error" onClick={() => void cancelDraft(item.id, item.version)}>Cancelar</Button></>}{(item.status === 'finalized' || item.status === 'corrected') && !historical && <Button size="small" startIcon={<RotateCcw size={15} />} onClick={() => void correct(item.id, item.version)}>Corregir</Button>}</Stack></Stack></Box></Box>)}</Stack>}
     </SectionCard>
     {selected && !editorOpen && <EncounterViewer record={selected} onClose={() => setSelected(null)} />}
-    <EvolutionStartDialog open={startOpen} onClose={() => setStartOpen(false)} onSelect={start} />
     <NutritionEditor open={editorOpen} record={selected?.encounter.status === 'draft' ? selected : null} admissionId={admissionId} csrfToken={csrfToken} mode={mode} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onClose={() => { setEditorOpen(false); setSelected(null) }} onSaved={() => { setEditorOpen(false); setSelected(null); setRefresh((value) => value + 1); onChanged() }} />
   </Stack>
 }
@@ -1016,7 +1037,25 @@ function ScreeningResult({ row }: { row: Record<string, unknown> }) {
   const answers = (row.answers as Array<Record<string, unknown>> | undefined) ?? []
   const byCode = Object.fromEntries(answers.map((answer) => [text(answer.answer_code), answer]))
   const classification = text(row.classification)
-  if (row.tool_code !== 'nrs_2002') return <Typography>{text(row.tool_code)} · puntaje {text(row.total_score)} · {classification}</Typography>
+  if (row.tool_code === 'none') return <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5 }}><Stack spacing={1}>
+    <Typography fontWeight={800}>Tamizaje no aplicado</Typography>
+    <Typography variant="caption" color="text.secondary">Documentado {formatDate(row.applied_at)}</Typography>
+    <FieldValue label="Motivo" value={row.no_tool_reason} />
+  </Stack></Box>
+  if (row.tool_code === 'strongkids') {
+    const resultLabel = classification === 'high' ? 'Riesgo alto' : classification === 'medium' ? 'Riesgo moderado' : classification === 'low' ? 'Riesgo bajo' : classification
+    const answerLabels: Record<string, string> = {
+      subjective_clinical_assessment: 'Evaluación clínica subjetiva',
+      high_risk_disease: 'Enfermedad de alto riesgo',
+      nutritional_intake_or_losses: 'Ingesta reducida o pérdidas',
+      weight_loss_or_poor_gain: 'Pérdida o mala ganancia de peso',
+    }
+    return <Box sx={{ border: 1, borderColor: classification === 'high' ? 'warning.main' : 'divider', borderRadius: 2, p: 1.5 }}><Stack spacing={1}>
+      <Stack direction="row" justifyContent="space-between" gap={1} flexWrap="wrap"><Typography fontWeight={800}>STRONGkids · {resultLabel}</Typography><Chip color={classification === 'high' ? 'warning' : 'success'} label={`Puntaje ${text(row.total_score)}`} /></Stack>
+      <Typography variant="caption" color="text.secondary">Aplicado {formatDate(row.applied_at)}</Typography>
+      <Grid container spacing={1}>{answers.filter((answer) => answerLabels[text(answer.answer_code)]).map((answer) => <Grid key={text(answer.id) + text(answer.answer_code)} size={{ xs: 12, sm: 6 }}><FieldValue label={answerLabels[text(answer.answer_code)]} value={text(answer.answer_value) === 'true' ? 'Sí' : 'No'} /></Grid>)}</Grid>
+    </Stack></Box>
+  }
   const resultLabel = classification === 'nutritional_risk' ? 'Con riesgo nutricional'
     : classification === 'initial_screen_negative' ? 'Tamizaje inicial negativo'
       : classification === 'no_nutritional_risk' ? 'Sin riesgo nutricional' : 'Tamizaje incompleto'
@@ -1049,9 +1088,10 @@ function EncounterViewer({ record, onClose }: { record: NutritionEncounterRead, 
   </Stack></DialogContent><DialogActions><Button onClick={onClose}>Cerrar</Button></DialogActions></Dialog>
 }
 
-function ModularEvolutionAction({ admissionId, csrfToken, historical, label, sections, onSaved }: {
+function ModularEvolutionAction({ admissionId, csrfToken, historical, label, sections, patientDateOfBirth, patientAgeIsEstimated, onSaved }: {
   admissionId: string; csrfToken: string; historical: boolean; label: string;
-  sections: number[]; onSaved: () => void
+  sections: number[]; patientDateOfBirth?: string | null; patientAgeIsEstimated?: boolean;
+  onSaved: () => void
 }) {
   const [open, setOpen] = useState(false)
   if (historical) return null
@@ -1064,16 +1104,62 @@ function ModularEvolutionAction({ admissionId, csrfToken, historical, label, sec
       csrfToken={csrfToken}
       mode="specific"
       presetSections={[0, ...sections, 9].filter((value, index, values) => values.indexOf(value) === index).sort((a, b) => a - b)}
+      patientDateOfBirth={patientDateOfBirth}
+      patientAgeIsEstimated={patientAgeIsEstimated}
       onClose={() => setOpen(false)}
       onSaved={() => { setOpen(false); onSaved() }}
     />
   </>
 }
 
+function AdvancedMeasurementCard({ session }: { session: NutritionAdvancedMeasurementSession }) {
+  const title = session.session_type === 'circumference' ? 'Circunferencias'
+    : session.session_type === 'handgrip' ? 'Dinamometría'
+      : session.session_type === 'skinfold_4' ? 'Cuatro pliegues Durnin–Womersley'
+        : 'Bioimpedancia clínica'
+  return <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5 }}><Stack spacing={1}>
+    <Stack direction="row" justifyContent="space-between" gap={1} flexWrap="wrap"><Typography fontWeight={800}>{title}</Typography><Chip size="small" variant="outlined" label={`${session.protocol_code} ${session.protocol_version}`} /></Stack>
+    <Typography variant="caption" color="text.secondary">{formatDate(session.measured_at)}{session.device_manufacturer ? ` · ${session.device_manufacturer} ${session.device_model ?? ''}` : ''}{session.position ? ` · ${session.position}` : ''}</Typography>
+    <Grid container spacing={1}>{session.values.map((row) => <Grid key={row.id} size={{ xs: 12, sm: 6 }}><Typography variant="body2"><strong>{ADVANCED_MEASUREMENT_LABELS[row.measurement_code] || row.measurement_code}</strong>{row.laterality !== 'none' ? ` · ${row.laterality === 'left' ? 'izquierda' : row.laterality === 'right' ? 'derecha' : 'bilateral'}` : ''}{row.attempt_number ? ` · intento ${row.attempt_number}` : ''}: {text(row.value)} {row.unit} {row.value_nature === 'calculated' && <Chip component="span" size="small" color="primary" label="calculado" sx={{ ml: 0.5 }} />}</Typography></Grid>)}</Grid>
+    {session.session_type === 'bioimpedance' && <Typography variant="caption" color="text.secondary">Preparación: {session.preparation_status ?? 'no registrada'} · Hidratación: {session.hydration_status ?? 'no registrada'} · Edema: {session.edema_present === null ? 'no registrado' : session.edema_present ? 'sí' : 'no'}</Typography>}
+  </Stack></Box>
+}
+
+function AnthropometryTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
+  const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-anthropometry`, 0)
+  return <SectionCard title="Antropometría y composición corporal" description="Mediciones simples, composición corporal y función muscular ordenadas longitudinalmente." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Registrar mediciones" sections={[2]} onSaved={() => { void reload(); onChanged() }} />}>
+    {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando antropometría" rows={4} /> : !data?.items.length ? <EmptyState title="Sin mediciones finalizadas" description="Registre peso, talla, circunferencias, dinamometría, pliegues o bioimpedancia." /> : <Stack spacing={2}>
+      <Alert severity="info">Los resultados del equipo se muestran como informados por el dispositivo; NutriWard no los interpreta automáticamente.</Alert>
+      {data.items.map((row) => row.record_type === 'advanced_session'
+        ? <AdvancedMeasurementCard key={text(row.id)} session={row as unknown as NutritionAdvancedMeasurementSession} />
+        : <Box key={text(row.id)} sx={{ borderBottom: 1, borderColor: 'divider', pb: 1.5 }}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}><Typography fontWeight={700}>{MEASUREMENT_LABELS[text(row.measurement_type)] || text(row.measurement_type)}</Typography><Typography>{text(row.value)} {text(row.unit)}</Typography></Stack><Typography variant="caption" color="text.secondary">{formatDate(row.measured_at)} · {text(row.value_nature)} · confiabilidad {text(row.reliability)}</Typography></Box>)}
+    </Stack>}
+  </SectionCard>
+}
+
+function ScreeningTab({ admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; patientDateOfBirth?: string | null; patientAgeIsEstimated?: boolean; onChanged: () => void }) {
+  const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-screenings`, 0)
+  return <SectionCard title="Tamizaje nutricional" description="Resultado vigente e historial de herramientas aplicadas durante la hospitalización." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Registrar tamizaje" sections={[3]} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onSaved={() => { void reload(); onChanged() }} />}>
+    {error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando tamizajes" rows={3} /> : !data?.items.length ? <EmptyState title="Sin tamizajes finalizados" description="Aplique la herramienta correspondiente a la población o documente por qué no corresponde." /> : <Stack spacing={2}>
+      <Alert severity="success">Último tamizaje aplicado · {formatDate(data.items[0].applied_at)}</Alert>
+      {data.items.map((row) => <ScreeningResult key={text(row.id)} row={row} />)}
+    </Stack>}
+  </SectionCard>
+}
+
 function AssessmentTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
   const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-assessments`, 0)
+  const current = useClinicalData<NutritionLatest>(`/admissions/${admissionId}/nutrition-latest`, 0)
   const latest = data?.items?.[0]
-  return <SectionCard title="Evaluación nutricional" description="Última evaluación finalizada e historial, proyectados desde sus evoluciones de origen." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Actualizar evaluación" sections={[2, 4]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando evaluaciones" rows={3} /> : !latest ? <EmptyState title="Sin evaluación finalizada" description="Registre y finalice una evolución para publicar esta proyección." /> : <Stack spacing={2}><Alert severity="success">Última evaluación finalizada · {formatDate(latest.observed_at)}</Alert><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(latest.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={latest.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={latest.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={latest.digestive_findings} /></Grid><Grid size={12}><FieldValue label="Objetivos" value={latest.objectives} /></Grid></Grid><Divider /><Typography variant="subtitle1" fontWeight={800}>Historial de evaluaciones ({data?.total})</Typography>{data?.items.map((row) => <Typography key={text(row.id)} variant="body2">{formatDate(row.observed_at)} · {POPULATION_LABELS[text(row.population_group)]} · Evolución {text(row.encounter_id)}</Typography>)}</Stack>}</SectionCard>
+  function reloadAll() { void reload(); void current.reload(); onChanged() }
+  return <SectionCard title="Evaluación clínica" description="Valoración clínica, requerimientos, diagnósticos PES, objetivos y seguimiento vigentes." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Actualizar evaluación" sections={[1, 4, 6, 7]} onSaved={reloadAll} />}>{error || current.error ? <ErrorState message={error || current.error || ''} onRetry={() => { void reload(); void current.reload() }} /> : loading || current.loading ? <LoadingState label="Cargando evaluación clínica" rows={4} /> : !latest && !current.data?.latest_encounter ? <EmptyState title="Sin evaluación finalizada" description="Registre y finalice una evaluación para publicar esta proyección." /> : <Stack spacing={2}>
+    {latest && <><Alert severity="success">Última evaluación finalizada · {formatDate(latest.observed_at)}</Alert><Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Población" value={POPULATION_LABELS[text(latest.population_group)]} /></Grid><Grid size={{ xs: 12, md: 8 }}><FieldValue label="Estado nutricional" value={latest.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Hallazgos clínicos" value={latest.clinical_findings} /></Grid><Grid size={12}><FieldValue label="Hallazgos digestivos" value={latest.digestive_findings} /></Grid><Grid size={12}><FieldValue label="Objetivos" value={latest.objectives} /></Grid><Grid size={12}><FieldValue label="Plan de monitoreo" value={latest.monitoring_plan} /></Grid><Grid size={12}><FieldValue label="Pendientes" value={latest.pending_actions} /></Grid></Grid></>}
+    <Divider /><Typography variant="subtitle1" fontWeight={800}>Requerimientos adoptados</Typography>
+    {!current.data?.adopted_requirements.length ? <Typography color="text.secondary">Sin requerimientos finalizados.</Typography> : current.data.adopted_requirements.map((row) => <Typography key={text(row.id)} variant="body2">{text(row.nutrient_code)}: {text(row.adopted_result)} {text(row.unit)} · {text(row.method)}</Typography>)}
+    <Divider /><Typography variant="subtitle1" fontWeight={800}>Diagnósticos PES activos</Typography>
+    {!current.data?.active_diagnoses.length ? <Typography color="text.secondary">Sin diagnósticos PES activos.</Typography> : current.data.active_diagnoses.map((row) => <Typography key={text(row.id)} variant="body2">{text(row.generated_statement)}</Typography>)}
+    {data?.items.length ? <><Divider /><Typography variant="subtitle1" fontWeight={800}>Historial de evaluaciones ({data.total})</Typography>{data.items.map((row) => <Typography key={text(row.id)} variant="body2">{formatDate(row.observed_at)} · {POPULATION_LABELS[text(row.population_group)]} · Evolución {text(row.encounter_id)}</Typography>)}</> : null}
+  </Stack>}</SectionCard>
 }
 
 function PrescriptionTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
@@ -1092,14 +1178,15 @@ function LabsTab({ admissionId, historical, csrfToken, onChanged }: { admissionI
   return <SectionCard title="Exámenes relevantes" description="Resultados transcritos manualmente; NutriWard no interpreta valores críticos ni reemplaza al laboratorio." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Agregar examen" sections={[5]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando exámenes" rows={3} /> : !data?.items.length ? <EmptyState title="Sin exámenes transcritos" description="Registre exámenes relevantes mediante una evolución específica." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Muestra</TableCell><TableCell>Examen</TableCell><TableCell>Resultado</TableCell><TableCell>Referencia</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(row.sampled_at)}</TableCell><TableCell>{text(row.test_name)}</TableCell><TableCell>{text(row.value)} {text(row.unit) === '—' ? '' : text(row.unit)}</TableCell><TableCell>{text(row.reference_range)}</TableCell><TableCell>{row.source === 'trakcare_manual' ? <Chip icon={<AlertTriangle size={14} />} size="small" label="Dato transcrito manualmente desde TrakCare" /> : text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard>
 }
 
-export function NutritionSummaryCard({ admissionId }: { admissionId: string }) {
-  const { data, loading, error, reload } = useClinicalData<NutritionLatest>(`/admissions/${admissionId}/nutrition-latest`, 0)
+export function NutritionSummaryCard({ admissionId, refreshKey = 0 }: { admissionId: string; refreshKey?: number }) {
+  const { data, loading, error, reload } = useClinicalData<NutritionLatest>(`/admissions/${admissionId}/nutrition-latest`, refreshKey)
   return <SectionCard title="Resumen nutricional clínico" description="Visible sólo para nutricionista y jefatura.">{loading ? <LoadingState label="Cargando resumen nutricional" rows={2} /> : error ? <ErrorState message={error} onRetry={() => void reload()} /> : !data?.latest_encounter ? <EmptyState title="Sin evolución finalizada" description="Los borradores no se publican como información clínica vigente." /> : <Stack spacing={2}>{data.active_alerts.map((alert) => <Alert severity={alert.severity === 'critical' ? 'error' : 'warning'} key={text(alert.id)}>{text(alert.description)} · Fuente: {text(alert.source)} · Verificación: {text(alert.verification_status)}</Alert>)}<Grid container spacing={2}><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Última evolución" value={formatDate(data.latest_encounter.finalized_at)} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Profesional" value={data.latest_encounter.professional_name} /></Grid><Grid size={{ xs: 12, md: 4 }}><FieldValue label="Estado nutricional" value={data.nutritional_status} /></Grid><Grid size={12}><FieldValue label="Diagnósticos PES activos" value={data.active_diagnoses.map((row) => text(row.generated_statement)).join(' · ')} /></Grid><Grid size={12}><FieldValue label="Reevaluación sugerida" value={formatDate(data.suggested_reassessment_at)} /></Grid></Grid></Stack>}</SectionCard>
 }
 
 export function NutritionClinicalTab({ tab, admissionId, historical, csrfToken, patientDateOfBirth, patientAgeIsEstimated, onChanged }: { tab: ClinicalTab, admissionId: string, historical: boolean, csrfToken: string, patientDateOfBirth?: string | null, patientAgeIsEstimated?: boolean, onChanged: () => void }) {
-  if (tab === 'care') return <CareTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onChanged={onChanged} />
   if (tab === 'assessment') return <AssessmentTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  if (tab === 'anthropometry') return <AnthropometryTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
+  if (tab === 'screening') return <ScreeningTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} patientDateOfBirth={patientDateOfBirth} patientAgeIsEstimated={patientAgeIsEstimated} onChanged={onChanged} />
   if (tab === 'prescription') return <PrescriptionTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   if (tab === 'intake') return <IntakeTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
   return <LabsTab admissionId={admissionId} historical={historical} csrfToken={csrfToken} onChanged={onChanged} />
