@@ -75,6 +75,9 @@ Ver `docs/planning/FASE-9.1-DIAGNOSTICOS-ANTECEDENTES.md`.
 - NRS-2002 guiado con tamizaje inicial, criterios nutricionales, gravedad confirmada,
   edad trazable y puntaje provisional en tiempo real recalculado por el backend.
 - Requerimientos trazables, diagnósticos PES, prescripción, ingesta y exámenes manuales.
+- Pegado masivo revisable de exámenes desde TrakCare o Excel, con columnas en orden
+  variable, catálogo de nombres y alias aprendidos, conservación de resultados nuevos o
+  pendientes, rangos por muestra y tendencias gráficas en Exámenes y Resumen.
 - Diagnósticos médicos múltiples por episodio y antecedentes mórbidos reutilizables.
 - Historia narrativa del episodio actual, vinculada a la hospitalización y conservada en
   versiones inmutables con fuente, autor y motivo de actualización.

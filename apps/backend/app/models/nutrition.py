@@ -430,6 +430,46 @@ class NutritionalIntakeRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
 
 
+class LaboratoryTestCatalog(SQLModel, table=True):
+    __tablename__ = "laboratory_test_catalog"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    canonical_name: str = Field(index=True, max_length=200)
+    normalized_name: str = Field(unique=True, index=True, max_length=220)
+    category: str | None = Field(default=None, max_length=80)
+    default_unit: str | None = Field(default=None, max_length=40)
+    created_by: uuid.UUID = Field(foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
+
+
+class LaboratoryTestAlias(SQLModel, table=True):
+    __tablename__ = "laboratory_test_aliases"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    laboratory_test_id: uuid.UUID = Field(
+        foreign_key="laboratory_test_catalog.id", index=True
+    )
+    alias: str = Field(max_length=200)
+    normalized_alias: str = Field(unique=True, index=True, max_length=220)
+    created_by: uuid.UUID = Field(foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
+
+
+class NutritionalLabImportBatch(SQLModel, table=True):
+    __tablename__ = "nutritional_lab_import_batches"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    admission_id: uuid.UUID = Field(foreign_key="admissions.id", index=True)
+    encounter_id: uuid.UUID = Field(
+        foreign_key="nutritional_care_encounters.id", unique=True, index=True
+    )
+    sampled_at: datetime = Field(sa_type=DateTime(timezone=True), index=True)
+    source: str = Field(max_length=80)
+    row_count: int = Field(default=0)
+    created_by: uuid.UUID = Field(foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))
+
+
 class NutritionalLabObservation(SQLModel, table=True):
     __tablename__ = "nutritional_lab_observations"
     __table_args__ = (
@@ -442,11 +482,22 @@ class NutritionalLabObservation(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     admission_id: uuid.UUID = Field(foreign_key="admissions.id", index=True)
     encounter_id: uuid.UUID = Field(foreign_key="nutritional_care_encounters.id", index=True)
+    import_batch_id: uuid.UUID | None = Field(
+        default=None, foreign_key="nutritional_lab_import_batches.id", index=True
+    )
+    laboratory_test_id: uuid.UUID | None = Field(
+        default=None, foreign_key="laboratory_test_catalog.id", index=True
+    )
     test_name: str = Field(index=True, max_length=200)
     local_code: str | None = Field(default=None, max_length=80)
     value: str = Field(max_length=200)
+    numeric_value: Decimal | None = Field(default=None, sa_type=Numeric(18, 6))
+    comparator: str | None = Field(default=None, max_length=2)
     unit: str | None = Field(default=None, max_length=40)
+    normalized_unit: str | None = Field(default=None, max_length=40)
     reference_range: str | None = Field(default=None, max_length=200)
+    reference_low: Decimal | None = Field(default=None, sa_type=Numeric(18, 6))
+    reference_high: Decimal | None = Field(default=None, sa_type=Numeric(18, 6))
     flag: str | None = Field(default=None, max_length=20)
     sampled_at: datetime = Field(sa_type=DateTime(timezone=True), index=True)
     recorded_at: datetime = Field(default_factory=utc_now, sa_type=DateTime(timezone=True))

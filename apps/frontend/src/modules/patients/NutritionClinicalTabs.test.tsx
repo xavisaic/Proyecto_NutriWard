@@ -7,6 +7,7 @@ import {
   NutritionClinicalTab,
   NutritionRegisterAction,
   NutritionSummaryCard,
+  parseLabPaste,
 } from './NutritionClinicalTabs'
 
 function response(payload: unknown, status = 200) {
@@ -18,6 +19,18 @@ const emptyList = { items: [], total: 0, page: 1, page_size: 20 }
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('Ficha nutricional clínica', () => {
+  it('interpreta tablas de exámenes con columnas en distinto orden', () => {
+    const rows = parseLabPaste([
+      'Resultado\tRango de referencia\tExamen\tUnidad',
+      '3,2\t3,5 - 5,2\tAlbúmina\tg/dL',
+      '48\t< 5\tPCR\tmg/L',
+    ].join('\n'))
+    expect(rows).toEqual([
+      { test_name: 'Albúmina', value: '3,2', unit: 'g/dL', reference_range: '3,5 - 5,2', flag: null },
+      { test_name: 'PCR', value: '48', unit: 'mg/L', reference_range: '< 5', flag: null },
+    ])
+  })
+
   it('crea un borrador explícito, navega secciones y adapta el tamizaje por población', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       if (init?.method === 'POST') return response({ encounter: { id: 'enc-1', admission_id: 'adm-1', encounter_datetime: '2026-08-13T10:00:00Z', encounter_type: 'initial_assessment', author_professional_id: 'user-1', author_name: 'Nutricionista', status: 'draft', clinical_summary: null, finalized_at: null, corrected_encounter_id: null, version: 1, reason_for_assessment: null, information_source: 'combined', correction_reason: null, cancellation_reason: null }, author_name: 'Nutricionista', finalized_by_name: null, assessment: null, context_items: [], anthropometry: [], screenings: [], requirements: [], diagnoses: [], prescription: null, monitoring: [], intake: [], labs: [], alerts: [] }, 201)

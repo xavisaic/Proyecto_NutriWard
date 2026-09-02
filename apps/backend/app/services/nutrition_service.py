@@ -1,4 +1,6 @@
 import uuid
+import re
+import unicodedata
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Iterable
@@ -10,6 +12,8 @@ from sqlmodel import Session, select
 from app.models.admission import Admission
 from app.models.common import utc_now
 from app.models.nutrition import (
+    LaboratoryTestAlias,
+    LaboratoryTestCatalog,
     NutritionalAlert,
     NutritionalAnthropometricMeasurement,
     NutritionalAssessment,
@@ -18,6 +22,7 @@ from app.models.nutrition import (
     NutritionalDiagnosis,
     NutritionalIntakeRecord,
     NutritionalLabObservation,
+    NutritionalLabImportBatch,
     NutritionalMeasurementSession,
     NutritionalMeasurementValue,
     NutritionalMonitoringRecord,
@@ -32,6 +37,13 @@ from app.models.user import User
 from app.schemas.nutrition import (
     CancellationCreate,
     CorrectionCreate,
+    LabBulkImportCreate,
+    LabBulkImportRead,
+    LabClassificationUpdate,
+    LabTrendPoint,
+    LabTrendResponse,
+    LabTrendSeries,
+    LaboratoryTestCatalogRead,
     NutritionCatalogs,
     NutritionEncounterCreate,
     NutritionEncounterList,
@@ -93,6 +105,380 @@ def _user_name(session: Session, user_id: uuid.UUID | None) -> str | None:
 
 def _dump(row: Any) -> dict[str, Any]:
     return row.model_dump(exclude={"password_hash"})
+
+
+def normalize_lab_name(value: str) -> str:
+    plain = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value.strip().lower())
+        if not unicodedata.combining(character)
+    )
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())
+
+
+def _parse_decimal_text(value: str) -> tuple[Decimal | None, str | None]:
+    compact = value.strip().replace("\u00a0", " ")
+    match = re.search(r"(?P<comparator><=|>=|<|>|≤|≥)?\s*(?P<number>[-+]?\d[\d.,]*)", compact)
+    if not match:
+        return None, None
+    raw = match.group("number")
+    if "," in raw and "." in raw:
+        raw = raw.replace(".", "").replace(",", ".") if raw.rfind(",") > raw.rfind(".") else raw.replace(",", "")
+    elif "," in raw:
+        raw = raw.replace(",", ".")
+    try:
+        return Decimal(raw), {"≤": "<=", "≥": ">="}.get(match.group("comparator"), match.group("comparator"))
+    except InvalidOperation:
+        return None, None
+
+
+def _parse_reference_range(value: str | None) -> tuple[Decimal | None, Decimal | None]:
+    if not value:
+        return None, None
+    numbers = re.findall(r"[-+]?\d+(?:[.,]\d+)?", value)
+    parsed = []
+    for number in numbers[:2]:
+        try:
+            parsed.append(Decimal(number.replace(",", ".")))
+        except InvalidOperation:
+            pass
+    if len(parsed) >= 2:
+        return min(parsed[0], parsed[1]), max(parsed[0], parsed[1])
+    if len(parsed) == 1:
+        if re.search(r"(?:<|≤|hasta|max)", value.lower()):
+            return None, parsed[0]
+        if re.search(r"(?:>|≥|desde|min)", value.lower()):
+            return parsed[0], None
+    return None, None
+
+
+def _lab_dump(
+    session: Session, row: NutritionalLabObservation
+) -> dict[str, Any]:
+    result = _dump(row)
+    catalog = (
+        session.get(LaboratoryTestCatalog, row.laboratory_test_id)
+        if row.laboratory_test_id
+        else None
+    )
+    result["canonical_name"] = catalog.canonical_name if catalog else None
+    result["pending_classification"] = catalog is None
+    return result
+
+
+def laboratory_test_catalog(session: Session) -> list[LaboratoryTestCatalogRead]:
+    tests = list(
+        session.exec(
+            select(LaboratoryTestCatalog).order_by(
+                LaboratoryTestCatalog.canonical_name,
+                LaboratoryTestCatalog.id,
+            )
+        ).all()
+    )
+    aliases = list(
+        session.exec(
+            select(LaboratoryTestAlias).order_by(
+                LaboratoryTestAlias.alias, LaboratoryTestAlias.id
+            )
+        ).all()
+    )
+    by_test: dict[uuid.UUID, list[LaboratoryTestAlias]] = {}
+    for alias in aliases:
+        by_test.setdefault(alias.laboratory_test_id, []).append(alias)
+    return [
+        LaboratoryTestCatalogRead(
+            **_dump(test),
+            aliases=[alias.alias for alias in by_test.get(test.id, [])],
+            normalized_aliases=[
+                alias.normalized_alias for alias in by_test.get(test.id, [])
+            ],
+        )
+        for test in tests
+    ]
+
+
+def _catalog_match(
+    session: Session, normalized_name: str
+) -> LaboratoryTestCatalog | None:
+    direct = session.exec(
+        select(LaboratoryTestCatalog).where(
+            LaboratoryTestCatalog.normalized_name == normalized_name
+        )
+    ).first()
+    if direct:
+        return direct
+    alias = session.exec(
+        select(LaboratoryTestAlias).where(
+            LaboratoryTestAlias.normalized_alias == normalized_name
+        )
+    ).first()
+    return session.get(LaboratoryTestCatalog, alias.laboratory_test_id) if alias else None
+
+
+def _create_catalog_test(
+    session: Session, name: str, unit: str | None, actor_id: uuid.UUID
+) -> LaboratoryTestCatalog:
+    normalized = normalize_lab_name(name)
+    existing = _catalog_match(session, normalized)
+    if existing:
+        return existing
+    catalog = LaboratoryTestCatalog(
+        canonical_name=name.strip(),
+        normalized_name=normalized,
+        default_unit=unit.strip() if unit else None,
+        created_by=actor_id,
+    )
+    session.add(catalog)
+    session.flush()
+    session.add(
+        LaboratoryTestAlias(
+            laboratory_test_id=catalog.id,
+            alias=name.strip(),
+            normalized_alias=normalized,
+            created_by=actor_id,
+        )
+    )
+    session.flush()
+    return catalog
+
+
+def import_laboratory_results(
+    session: Session,
+    admission_id: uuid.UUID,
+    payload: LabBulkImportCreate,
+    actor_id: uuid.UUID,
+) -> LabBulkImportRead:
+    admission = _admission(session, admission_id)
+    _ensure_active(admission)
+    now = utc_now()
+    encounter = NutritionalCareEncounter(
+        admission_id=admission_id,
+        encounter_datetime=payload.sampled_at,
+        encounter_type="other",
+        author_professional_id=actor_id,
+        status="finalized",
+        clinical_summary=f"Importación manual de {len(payload.rows)} resultados de exámenes.",
+        reason_for_assessment="Registro masivo de resultados de laboratorio.",
+        information_source=payload.source,
+        finalized_at=now,
+        finalized_by=actor_id,
+        version=2,
+        updated_at=now,
+    )
+    session.add(encounter)
+    session.flush()
+    batch = NutritionalLabImportBatch(
+        admission_id=admission_id,
+        encounter_id=encounter.id,
+        sampled_at=payload.sampled_at,
+        source=payload.source,
+        row_count=len(payload.rows),
+        created_by=actor_id,
+    )
+    session.add(batch)
+    session.flush()
+
+    observations: list[NutritionalLabObservation] = []
+    created_catalog_count = 0
+    pending_count = 0
+    for item in payload.rows:
+        normalized_name = normalize_lab_name(item.test_name)
+        catalog: LaboratoryTestCatalog | None = None
+        if item.catalog_test_id:
+            catalog = session.get(LaboratoryTestCatalog, item.catalog_test_id)
+            if catalog is None:
+                raise _invalid(f"El examen asociado a {item.test_name} ya no existe.")
+        elif item.resolution == "match":
+            catalog = _catalog_match(session, normalized_name)
+        elif item.resolution == "create":
+            before = _catalog_match(session, normalized_name)
+            catalog = before or _create_catalog_test(
+                session, item.test_name, item.unit, actor_id
+            )
+            created_catalog_count += int(before is None)
+        if catalog is None:
+            pending_count += 1
+        elif catalog.normalized_name != normalized_name and not _catalog_match(
+            session, normalized_name
+        ):
+            session.add(
+                LaboratoryTestAlias(
+                    laboratory_test_id=catalog.id,
+                    alias=item.test_name,
+                    normalized_alias=normalized_name,
+                    created_by=actor_id,
+                )
+            )
+
+        numeric_value, comparator = _parse_decimal_text(item.value)
+        reference_low, reference_high = _parse_reference_range(item.reference_range)
+        observation = NutritionalLabObservation(
+            admission_id=admission_id,
+            encounter_id=encounter.id,
+            import_batch_id=batch.id,
+            laboratory_test_id=catalog.id if catalog else None,
+            test_name=item.test_name,
+            local_code=item.local_code,
+            value=item.value,
+            numeric_value=numeric_value,
+            comparator=comparator,
+            unit=item.unit,
+            normalized_unit=item.unit.strip().lower() if item.unit else None,
+            reference_range=item.reference_range,
+            reference_low=reference_low,
+            reference_high=reference_high,
+            flag=item.flag,
+            sampled_at=payload.sampled_at,
+            recorded_at=now,
+            source=payload.source,
+            author_professional_id=actor_id,
+        )
+        session.add(observation)
+        observations.append(observation)
+    session.flush()
+    record_audit(
+        session,
+        action="nutrition_lab_batch_imported",
+        actor_user_id=actor_id,
+        entity_type="nutritional_lab_import_batch",
+        entity_id=batch.id,
+        admission_id=admission_id,
+        after_state={
+            "row_count": len(observations),
+            "created_catalog_count": created_catalog_count,
+            "pending_count": pending_count,
+            "source": payload.source,
+        },
+    )
+    session.commit()
+    refreshed = [session.get(NutritionalLabObservation, row.id) for row in observations]
+    return LabBulkImportRead(
+        batch_id=batch.id,
+        encounter_id=encounter.id,
+        imported_count=len(observations),
+        created_catalog_count=created_catalog_count,
+        pending_count=pending_count,
+        items=[_lab_dump(session, row) for row in refreshed if row is not None],
+    )
+
+
+def laboratory_trends(
+    session: Session, admission_id: uuid.UUID
+) -> LabTrendResponse:
+    finals = _final_encounters(session, admission_id)
+    final_ids = [encounter.id for encounter in finals]
+    if not final_ids:
+        return LabTrendResponse(admission_id=admission_id, series=[])
+    rows = list(
+        session.exec(
+            select(NutritionalLabObservation)
+            .where(
+                NutritionalLabObservation.encounter_id.in_(final_ids),
+                NutritionalLabObservation.numeric_value.is_not(None),
+            )
+            .order_by(
+                NutritionalLabObservation.sampled_at,
+                NutritionalLabObservation.id,
+            )
+        ).all()
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        catalog = (
+            session.get(LaboratoryTestCatalog, row.laboratory_test_id)
+            if row.laboratory_test_id
+            else None
+        )
+        key = str(catalog.id) if catalog else f"pending:{normalize_lab_name(row.test_name)}"
+        entry = grouped.setdefault(
+            key,
+            {
+                "catalog": catalog,
+                "display_name": catalog.canonical_name if catalog else row.test_name,
+                "unit": row.unit,
+                "points": [],
+            },
+        )
+        entry["points"].append(
+            LabTrendPoint(
+                id=row.id,
+                sampled_at=row.sampled_at,
+                numeric_value=row.numeric_value,
+                comparator=row.comparator,
+                value=row.value,
+                unit=row.unit,
+                reference_low=row.reference_low,
+                reference_high=row.reference_high,
+                reference_range=row.reference_range,
+                flag=row.flag,
+            )
+        )
+    series = [
+        LabTrendSeries(
+            key=key,
+            catalog_test_id=data["catalog"].id if data["catalog"] else None,
+            display_name=data["display_name"],
+            unit=data["unit"],
+            pending_classification=data["catalog"] is None,
+            points=data["points"],
+        )
+        for key, data in grouped.items()
+    ]
+    series.sort(
+        key=lambda item: item.points[-1].sampled_at if item.points else datetime.min,
+        reverse=True,
+    )
+    return LabTrendResponse(admission_id=admission_id, series=series)
+
+
+def classify_laboratory_observation(
+    session: Session,
+    observation_id: uuid.UUID,
+    payload: LabClassificationUpdate,
+    actor_id: uuid.UUID,
+) -> dict[str, Any]:
+    observation = session.get(NutritionalLabObservation, observation_id)
+    if observation is None:
+        raise _not_found("Resultado de examen no encontrado.")
+    _ensure_active(_admission(session, observation.admission_id))
+    catalog = (
+        _create_catalog_test(session, observation.test_name, observation.unit, actor_id)
+        if payload.create_new
+        else session.get(LaboratoryTestCatalog, payload.catalog_test_id)
+    )
+    if catalog is None:
+        raise _not_found("Examen de catálogo no encontrado.")
+    normalized_name = normalize_lab_name(observation.test_name)
+    existing_match = _catalog_match(session, normalized_name)
+    if existing_match is None:
+        session.add(
+            LaboratoryTestAlias(
+                laboratory_test_id=catalog.id,
+                alias=observation.test_name,
+                normalized_alias=normalized_name,
+                created_by=actor_id,
+            )
+        )
+    previous_id = observation.laboratory_test_id
+    observation.laboratory_test_id = catalog.id
+    session.add(observation)
+    record_audit(
+        session,
+        action="nutrition_lab_classified",
+        actor_user_id=actor_id,
+        entity_type="nutritional_lab_observation",
+        entity_id=observation.id,
+        admission_id=observation.admission_id,
+        before_state={"laboratory_test_id": str(previous_id) if previous_id else None},
+        after_state={
+            "laboratory_test_id": str(catalog.id),
+            "canonical_name": catalog.canonical_name,
+            "raw_test_name": observation.test_name,
+        },
+    )
+    session.commit()
+    refreshed = session.get(NutritionalLabObservation, observation.id)
+    return _lab_dump(session, refreshed) if refreshed else {}
 
 
 def _ensure_draft_access(
@@ -1269,6 +1655,8 @@ def projection(session: Session, admission_id: uuid.UUID, kind: str, page: int, 
         if kind == "prescriptions"
         else _screening_with_answers(session, row)
         if kind == "screenings"
+        else _lab_dump(session, row)
+        if kind == "labs"
         else _dump(row)
         for row in page_rows
     ]
@@ -1305,3 +1693,9 @@ def catalogs() -> NutritionCatalogs:
             {"code": "other", "population": ["adult", "pediatric", "neonatal", "pregnancy"]},
         ],
     )
+    LabBulkImportCreate,
+    LabBulkImportRead,
+    LabTrendPoint,
+    LabTrendResponse,
+    LabTrendSeries,
+    LaboratoryTestCatalogRead,

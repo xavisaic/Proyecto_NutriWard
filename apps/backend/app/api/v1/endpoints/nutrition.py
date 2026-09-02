@@ -7,6 +7,11 @@ from app.api.dependencies import CurrentSession, DatabaseSession, require_roles,
 from app.schemas.nutrition import (
     CancellationCreate,
     CorrectionCreate,
+    LabBulkImportCreate,
+    LabBulkImportRead,
+    LabClassificationUpdate,
+    LabTrendResponse,
+    LaboratoryTestCatalogRead,
     NutritionCatalogs,
     NutritionEncounterCreate,
     NutritionEncounterList,
@@ -23,6 +28,10 @@ from app.services.nutrition_service import (
     create_encounter,
     finalize_encounter,
     get_encounter_authorized,
+    import_laboratory_results,
+    classify_laboratory_observation,
+    laboratory_test_catalog,
+    laboratory_trends,
     latest_nutrition,
     list_encounters,
     projection,
@@ -190,6 +199,59 @@ def read_intake(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSes
 @router.get("/admissions/{admission_id}/nutrition-labs", response_model=NutritionProjectionList)
 def read_labs(admission_id: uuid.UUID, _: ClinicalReader, session: DatabaseSession, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=100)) -> NutritionProjectionList:
     return _projection("labs", admission_id, session, page, page_size)
+
+
+@router.get(
+    "/nutrition-lab-catalog",
+    response_model=list[LaboratoryTestCatalogRead],
+    summary="List canonical laboratory tests and learned aliases",
+)
+def read_lab_catalog(_: ClinicalReader, session: DatabaseSession) -> list[LaboratoryTestCatalogRead]:
+    return laboratory_test_catalog(session)
+
+
+@router.post(
+    "/admissions/{admission_id}/nutrition-lab-imports",
+    response_model=LabBulkImportRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import and finalize a reviewed batch of laboratory results",
+)
+def add_lab_import(
+    admission_id: uuid.UUID,
+    payload: LabBulkImportCreate,
+    current: ClinicalEditor,
+    session: DatabaseSession,
+) -> LabBulkImportRead:
+    return import_laboratory_results(session, admission_id, payload, current.user.id)
+
+
+@router.get(
+    "/admissions/{admission_id}/nutrition-lab-trends",
+    response_model=LabTrendResponse,
+    summary="Read numeric laboratory series for charts",
+)
+def read_lab_trends(
+    admission_id: uuid.UUID,
+    _: ClinicalReader,
+    session: DatabaseSession,
+) -> LabTrendResponse:
+    return laboratory_trends(session, admission_id)
+
+
+@router.patch(
+    "/nutrition-lab-observations/{observation_id}/classification",
+    response_model=dict,
+    summary="Classify a pending laboratory result without changing its source data",
+)
+def classify_lab_result(
+    observation_id: uuid.UUID,
+    payload: LabClassificationUpdate,
+    current: ClinicalEditor,
+    session: DatabaseSession,
+) -> dict:
+    return classify_laboratory_observation(
+        session, observation_id, payload, current.user.id
+    )
 
 
 @router.get("/nutrition-catalogs", response_model=NutritionCatalogs)

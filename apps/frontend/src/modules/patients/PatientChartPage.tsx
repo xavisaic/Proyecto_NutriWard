@@ -49,6 +49,7 @@ import {
 import { IdentityDialog, LocationDialog } from './PatientsDashboard'
 import { MovePatientDialog } from '../transfers/Transfers'
 import {
+  LabSummaryCard,
   NutritionActivityCard,
   NutritionClinicalTab,
   NutritionRegisterAction,
@@ -252,6 +253,7 @@ function SummaryTab({ summary, showNutrition, csrfToken, nutritionRefresh, onNut
       </SectionCard>
       {showNutrition && admission ? <ClinicalContextSummaryCard admissionId={admission.id} /> : null}
       {showNutrition && admission ? <NutritionSummaryCard admissionId={admission.id} refreshKey={nutritionRefresh} /> : null}
+      {showNutrition && admission ? <LabSummaryCard admissionId={admission.id} refreshKey={nutritionRefresh} /> : null}
       {showNutrition && admission ? <NutritionActivityCard admissionId={admission.id} historical={admission.is_historical} csrfToken={csrfToken} patientDateOfBirth={summary.patient.date_of_birth} patientAgeIsEstimated={summary.patient.date_of_birth_is_estimated} refreshKey={nutritionRefresh} onChanged={onNutritionChanged} /> : null}
     </Stack>
   )

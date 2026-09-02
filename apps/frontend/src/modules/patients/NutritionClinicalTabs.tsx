@@ -35,6 +35,10 @@ import { EmptyState, ErrorState, LoadingState, SectionCard, StatusBadge } from '
 import {
   ApiError,
   apiRequest,
+  LaboratoryTestCatalogItem,
+  LabTrendPoint,
+  LabTrendResponse,
+  LabTrendSeries,
   NutritionAdvancedMeasurementSession,
   NutritionEncounterList,
   NutritionEncounterRead,
@@ -44,6 +48,54 @@ import {
 
 type ClinicalTab = 'assessment' | 'anthropometry' | 'screening' | 'prescription' | 'intake' | 'labs'
 type EvolutionMode = 'initial' | 'follow_up' | 'specific'
+
+export interface ParsedLabRow {
+  test_name: string
+  value: string
+  unit: string
+  reference_range: string
+  flag: string | null
+}
+
+const LAB_HEADER_ALIASES: Record<keyof Omit<ParsedLabRow, 'flag'> | 'flag', string[]> = {
+  test_name: ['examen', 'prueba', 'analito', 'determinacion', 'test', 'nombre'],
+  value: ['resultado', 'valor', 'result'],
+  unit: ['unidad', 'unidades', 'unit'],
+  reference_range: ['rango', 'referencia', 'rango referencia', 'rango de referencia', 'valores referencia', 'valores de referencia', 'valor referencia', 'valor de referencia'],
+  flag: ['flag', 'indicador', 'estado', 'bandera'],
+}
+
+export function normalizeLabLabel(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function labFlag(value: string | undefined): string | null {
+  const normalized = normalizeLabLabel(value ?? '')
+  if (['h', 'alto', 'high'].includes(normalized)) return 'high'
+  if (['l', 'bajo', 'low'].includes(normalized)) return 'low'
+  if (['c', 'critico', 'critical'].includes(normalized)) return 'critical'
+  if (['n', 'normal'].includes(normalized)) return 'normal'
+  return null
+}
+
+export function parseLabPaste(input: string): ParsedLabRow[] {
+  const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (!lines.length) return []
+  const delimiter = lines[0].includes('\t') ? '\t' : ';'
+  const cells = lines.map((line) => line.split(delimiter).map((cell) => cell.trim()))
+  const headers = cells[0].map(normalizeLabLabel)
+  const indexFor = (key: keyof typeof LAB_HEADER_ALIASES) => headers.findIndex((header) => LAB_HEADER_ALIASES[key].includes(header))
+  const detected = { test_name: indexFor('test_name'), value: indexFor('value'), unit: indexFor('unit'), reference_range: indexFor('reference_range'), flag: indexFor('flag') }
+  const hasHeader = detected.test_name >= 0 && detected.value >= 0
+  const indexes = hasHeader ? detected : { test_name: 0, value: 1, unit: 2, reference_range: 3, flag: 4 }
+  return cells.slice(hasHeader ? 1 : 0).map((row) => ({
+    test_name: row[indexes.test_name]?.trim() ?? '',
+    value: row[indexes.value]?.trim() ?? '',
+    unit: row[indexes.unit]?.trim() ?? '',
+    reference_range: row[indexes.reference_range]?.trim() ?? '',
+    flag: labFlag(row[indexes.flag]),
+  })).filter((row) => row.test_name && row.value)
+}
 
 const SECTIONS = [
   'Contexto de la atención',
@@ -1173,9 +1225,160 @@ function IntakeTab({ admissionId, historical, csrfToken, onChanged }: { admissio
   return <Stack spacing={2}><Alert severity="info">Esta pestaña conserva el control clínico de ingesta. La minuta diaria y el consolidado de producción se gestionan en sus módulos operacionales específicos.</Alert><SectionCard title="Control de ingesta" actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Registrar ingesta" sections={[5]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando ingesta" rows={3} /> : !data?.items.length ? <EmptyState title="Sin controles de ingesta" description="Registre ingesta mediante una evolución específica." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Fecha</TableCell><TableCell>Tiempo</TableCell><TableCell>Consumido</TableCell><TableCell>Motivo incompleto</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(text(row.intake_date), false)}</TableCell><TableCell>{text(row.meal_time)}</TableCell><TableCell>{text(row.consumed_percentage)}%</TableCell><TableCell>{text(row.incomplete_reason)}</TableCell><TableCell>{SOURCE_LABELS[text(row.source)] || text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard></Stack>
 }
 
+type ReviewLabRow = ParsedLabRow & { catalog_test_id: string | null; resolution: 'match' | 'create' | 'pending' }
+
+function localDateTimeValue() {
+  const now = new Date()
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+
+function exactCatalogMatch(name: string, catalog: LaboratoryTestCatalogItem[]) {
+  const normalized = normalizeLabLabel(name)
+  return catalog.find((item) => item.normalized_name === normalized || item.normalized_aliases.includes(normalized)) ?? null
+}
+
+function LabPasteDialog({ open, admissionId, csrfToken, catalog, onClose, onSaved }: {
+  open: boolean; admissionId: string; csrfToken: string; catalog: LaboratoryTestCatalogItem[];
+  onClose: () => void; onSaved: () => void
+}) {
+  const [raw, setRaw] = useState('')
+  const [sampledAt, setSampledAt] = useState(localDateTimeValue)
+  const [rows, setRows] = useState<ReviewLabRow[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setRaw(''); setRows([]); setError(null); setSampledAt(localDateTimeValue())
+  }, [open])
+
+  function review(value: string) {
+    setRaw(value); setError(null)
+    const parsed = parseLabPaste(value)
+    setRows(parsed.map((row) => {
+      const match = exactCatalogMatch(row.test_name, catalog)
+      return { ...row, catalog_test_id: match?.id ?? null, resolution: match ? 'match' : 'create' }
+    }))
+  }
+
+  function resolutionValue(row: ReviewLabRow) {
+    return row.catalog_test_id ? `catalog:${row.catalog_test_id}` : row.resolution
+  }
+
+  function setResolution(index: number, value: string) {
+    setRows((current) => current.map((row, rowIndex) => rowIndex !== index ? row : value.startsWith('catalog:')
+      ? { ...row, catalog_test_id: value.slice(8), resolution: 'match' }
+      : { ...row, catalog_test_id: null, resolution: value as 'create' | 'pending' }))
+  }
+
+  async function save() {
+    if (!rows.length) { setError('Pegue al menos una fila con examen y resultado.'); return }
+    setSaving(true); setError(null)
+    try {
+      await apiRequest(`/admissions/${admissionId}/nutrition-lab-imports`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sampled_at: new Date(sampledAt).toISOString(), source: 'trakcare_manual',
+          rows: rows.map((row) => ({
+            test_name: row.test_name, value: row.value, unit: row.unit || null,
+            reference_range: row.reference_range || null, flag: row.flag,
+            catalog_test_id: row.catalog_test_id, resolution: row.resolution,
+          })),
+        }),
+      }, csrfToken)
+      onSaved(); onClose()
+    } catch (caught) { setError(clinicalError(caught)) }
+    finally { setSaving(false) }
+  }
+
+  const newCount = rows.filter((row) => row.resolution === 'create' && !row.catalog_test_id).length
+  const pendingCount = rows.filter((row) => row.resolution === 'pending').length
+  return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="lg">
+    <DialogTitle>Pegar resultados de exámenes</DialogTitle>
+    <DialogContent dividers><Stack spacing={2}>
+      <Alert severity="info">Copie desde TrakCare o Excel. Se aceptan columnas en cualquier orden si incluyen encabezados como Examen, Resultado, Unidad y Rango.</Alert>
+      <TextField label="Fecha y hora de la muestra" type="datetime-local" value={sampledAt} onChange={(event) => setSampledAt(event.target.value)} InputLabelProps={{ shrink: true }} sx={{ maxWidth: 320 }} />
+      <TextField multiline minRows={5} label="Tabla de resultados" placeholder={'Examen\tResultado\tUnidad\tRango\nAlbúmina\t3,2\tg/dL\t3,5 - 5,2'} value={raw} onChange={(event) => review(event.target.value)} />
+      {raw && !rows.length && <Alert severity="warning">No se detectaron filas válidas. Use tabulaciones o punto y coma entre las columnas.</Alert>}
+      {rows.length > 0 && <>
+        <Stack direction="row" gap={1} flexWrap="wrap"><Chip color="success" label={`${rows.length} filas listas`} />{newCount > 0 && <Chip color="warning" label={`${newCount} exámenes nuevos`} />}{pendingCount > 0 && <Chip label={`${pendingCount} pendientes`} />}</Stack>
+        <TableContainer sx={{ maxHeight: 390 }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell>Examen original</TableCell><TableCell>Resultado</TableCell><TableCell>Unidad</TableCell><TableCell>Referencia</TableCell><TableCell sx={{ minWidth: 240 }}>Clasificación</TableCell></TableRow></TableHead><TableBody>{rows.map((row, index) => <TableRow key={`${row.test_name}:${index}`}><TableCell>{row.test_name}</TableCell><TableCell>{row.value}</TableCell><TableCell>{row.unit || '—'}</TableCell><TableCell>{row.reference_range || '—'}</TableCell><TableCell><TextField select size="small" fullWidth value={resolutionValue(row)} onChange={(event) => setResolution(index, event.target.value)}>
+          {!row.catalog_test_id && <MenuItem value="create">Crear “{row.test_name}”</MenuItem>}
+          <MenuItem value="pending">Guardar pendiente</MenuItem>
+          {catalog.map((item) => <MenuItem key={item.id} value={`catalog:${item.id}`}>{item.canonical_name}</MenuItem>)}
+        </TextField></TableCell></TableRow>)}</TableBody></Table></TableContainer>
+      </>}
+      {error && <Alert severity="error">{error}</Alert>}{saving && <LinearProgress />}
+    </Stack></DialogContent>
+    <DialogActions><Button onClick={onClose} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !rows.length}>Guardar {rows.length || ''} resultados</Button></DialogActions>
+  </Dialog>
+}
+
+function LabTrendChart({ series, compact = false }: { series: LabTrendSeries; compact?: boolean }) {
+  const points = series.points
+  if (!points.length) return null
+  const numeric = points.map((point) => Number(point.numeric_value))
+  const bounds = points.flatMap((point) => [point.reference_low, point.reference_high].filter((value): value is number => value !== null).map(Number))
+  const minimum = Math.min(...numeric, ...bounds)
+  const maximum = Math.max(...numeric, ...bounds)
+  const padding = Math.max((maximum - minimum) * 0.12, Math.abs(maximum) * 0.05, 1)
+  const low = minimum - padding; const high = maximum + padding
+  const width = 640; const height = compact ? 95 : 230; const left = compact ? 8 : 48; const right = 14; const top = 14; const bottom = compact ? 12 : 38
+  const x = (index: number) => points.length === 1 ? (left + width - right) / 2 : left + index * (width - left - right) / (points.length - 1)
+  const y = (value: number) => top + (high - value) * (height - top - bottom) / (high - low)
+  const latest = points[points.length - 1]
+  const referenceTop = latest.reference_high === null ? null : y(Number(latest.reference_high))
+  const referenceBottom = latest.reference_low === null ? null : y(Number(latest.reference_low))
+  const outOfRange = (point: LabTrendPoint) => point.flag === 'high' || point.flag === 'low' || point.flag === 'critical' || (point.reference_low !== null && Number(point.numeric_value) < Number(point.reference_low)) || (point.reference_high !== null && Number(point.numeric_value) > Number(point.reference_high))
+  return <Box>
+    <Box component="svg" role="img" aria-label={`Tendencia de ${series.display_name}`} viewBox={`0 0 ${width} ${height}`} sx={{ width: '100%', height: compact ? 95 : { xs: 180, md: 230 }, display: 'block', color: 'text.secondary' }}>
+      {!compact && referenceTop !== null && referenceBottom !== null && <rect x={left} y={Math.min(referenceTop, referenceBottom)} width={width - left - right} height={Math.abs(referenceBottom - referenceTop)} fill="#2e7d32" opacity="0.1" />}
+      {!compact && <><line x1={left} y1={top} x2={left} y2={height - bottom} stroke="currentColor" opacity="0.35" /><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} stroke="currentColor" opacity="0.35" /><text x={left - 6} y={top + 5} textAnchor="end" fontSize="11" fill="currentColor">{maximum.toLocaleString('es-CL')}</text><text x={left - 6} y={height - bottom} textAnchor="end" fontSize="11" fill="currentColor">{minimum.toLocaleString('es-CL')}</text></>}
+      {points.length > 1 && <polyline fill="none" stroke="#1976d2" strokeWidth={compact ? 3 : 2.5} points={points.map((point, index) => `${x(index)},${y(Number(point.numeric_value))}`).join(' ')} />}
+      {points.map((point, index) => <circle key={point.id} cx={x(index)} cy={y(Number(point.numeric_value))} r={compact ? 4 : 5} fill={outOfRange(point) ? '#ed6c02' : '#1976d2'}><title>{`${formatDate(point.sampled_at)}: ${point.value} ${point.unit ?? ''}`}</title></circle>)}
+      {!compact && <><text x={left} y={height - 9} fontSize="11" fill="currentColor">{formatDate(points[0].sampled_at, false)}</text><text x={width - right} y={height - 9} textAnchor="end" fontSize="11" fill="currentColor">{formatDate(latest.sampled_at, false)}</text></>}
+    </Box>
+  </Box>
+}
+
 function LabsTab({ admissionId, historical, csrfToken, onChanged }: { admissionId: string; historical: boolean; csrfToken: string; onChanged: () => void }) {
-  const { data, loading, error, reload } = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-labs`, 0)
-  return <SectionCard title="Exámenes relevantes" description="Resultados transcritos manualmente; NutriWard no interpreta valores críticos ni reemplaza al laboratorio." actions={<ModularEvolutionAction admissionId={admissionId} csrfToken={csrfToken} historical={historical} label="Agregar examen" sections={[5]} onSaved={() => { void reload(); onChanged() }} />}>{error ? <ErrorState message={error} onRetry={() => void reload()} /> : loading ? <LoadingState label="Cargando exámenes" rows={3} /> : !data?.items.length ? <EmptyState title="Sin exámenes transcritos" description="Registre exámenes relevantes mediante una evolución específica." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Muestra</TableCell><TableCell>Examen</TableCell><TableCell>Resultado</TableCell><TableCell>Referencia</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(row.sampled_at)}</TableCell><TableCell>{text(row.test_name)}</TableCell><TableCell>{text(row.value)} {text(row.unit) === '—' ? '' : text(row.unit)}</TableCell><TableCell>{text(row.reference_range)}</TableCell><TableCell>{row.source === 'trakcare_manual' ? <Chip icon={<AlertTriangle size={14} />} size="small" label="Dato transcrito manualmente desde TrakCare" /> : text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}</SectionCard>
+  const [refresh, setRefresh] = useState(0)
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [selectedKey, setSelectedKey] = useState('')
+  const [classifyingId, setClassifyingId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const results = useClinicalData<NutritionProjectionList>(`/admissions/${admissionId}/nutrition-labs?page_size=100`, refresh)
+  const trends = useClinicalData<LabTrendResponse>(`/admissions/${admissionId}/nutrition-lab-trends`, refresh)
+  const catalog = useClinicalData<LaboratoryTestCatalogItem[]>('/nutrition-lab-catalog', refresh)
+  const catalogItems = Array.isArray(catalog.data) ? catalog.data : []
+  const selected = trends.data?.series?.find((series) => series.key === selectedKey) ?? trends.data?.series?.[0] ?? null
+  function reloadAll() { setRefresh((value) => value + 1); onChanged() }
+  async function classify(rowId: string, target: string) {
+    setClassifyingId(rowId); setActionError(null)
+    try {
+      await apiRequest(`/nutrition-lab-observations/${rowId}/classification`, {
+        method: 'PATCH',
+        body: JSON.stringify(target === 'create' ? { create_new: true } : { catalog_test_id: target }),
+      }, csrfToken)
+      reloadAll()
+    } catch (caught) { setActionError(clinicalError(caught)) }
+    finally { setClassifyingId(null) }
+  }
+  return <Stack spacing={2}>
+    <Alert severity="info">Los rangos se conservan como fueron transcritos. NutriWard muestra tendencias y resultados fuera del rango informado, pero no reemplaza la validación del laboratorio.</Alert>
+    {actionError && <Alert severity="error">{actionError}</Alert>}
+    {trends.data?.series?.length ? <SectionCard title="Tendencia histórica" description="Seleccione un examen para revisar su evolución durante esta hospitalización."><Stack spacing={1.5}><FormControl size="small" sx={{ maxWidth: 420 }}><InputLabel id="lab-series-label">Examen</InputLabel><Select labelId="lab-series-label" label="Examen" value={selected?.key ?? ''} onChange={(event) => setSelectedKey(event.target.value)}>{trends.data.series.map((series) => <MenuItem key={series.key} value={series.key}>{series.display_name}{series.pending_classification ? ' · pendiente' : ''}</MenuItem>)}</Select></FormControl>{selected && <><Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap"><Typography variant="h5" fontWeight={850}>{selected.points[selected.points.length - 1]?.value} {selected.unit}</Typography><Typography color="text.secondary">Último resultado · {formatDate(selected.points[selected.points.length - 1]?.sampled_at)}</Typography></Stack><LabTrendChart series={selected} /></>}</Stack></SectionCard> : null}
+    <SectionCard title="Exámenes relevantes" description="Resultados finalizados y auditables, agrupados por nombre canónico aunque lleguen en distinto orden." actions={<Button variant="contained" startIcon={<ClipboardPlus size={17} />} disabled={historical} onClick={() => setPasteOpen(true)}>Pegar resultados</Button>}>
+      {results.error ? <ErrorState message={results.error} onRetry={() => void results.reload()} /> : results.loading ? <LoadingState label="Cargando exámenes" rows={3} /> : !results.data?.items.length ? <EmptyState title="Sin exámenes transcritos" description="Pegue una tabla desde TrakCare o Excel para registrar el primer lote." /> : <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Muestra</TableCell><TableCell>Examen</TableCell><TableCell>Resultado</TableCell><TableCell>Referencia</TableCell><TableCell sx={{ minWidth: 180 }}>Clasificación</TableCell><TableCell>Fuente</TableCell></TableRow></TableHead><TableBody>{results.data.items.map((row) => <TableRow key={text(row.id)}><TableCell>{formatDate(row.sampled_at)}</TableCell><TableCell><Typography fontWeight={700}>{text(row.canonical_name) === '—' ? text(row.test_name) : text(row.canonical_name)}</Typography>{text(row.canonical_name) !== '—' && text(row.canonical_name) !== text(row.test_name) && <Typography variant="caption" color="text.secondary">Original: {text(row.test_name)}</Typography>}</TableCell><TableCell>{text(row.value)} {text(row.unit) === '—' ? '' : text(row.unit)}</TableCell><TableCell>{text(row.reference_range)}</TableCell><TableCell>{row.pending_classification ? <TextField select size="small" fullWidth value="" label="Clasificar" disabled={historical || classifyingId === text(row.id)} onChange={(event) => void classify(text(row.id), event.target.value)}><MenuItem value="create">Crear este examen</MenuItem>{catalogItems.map((item) => <MenuItem key={item.id} value={item.id}>{item.canonical_name}</MenuItem>)}</TextField> : <Chip size="small" color="success" variant="outlined" label="Clasificado" />}</TableCell><TableCell>{row.source === 'trakcare_manual' ? <Chip icon={<AlertTriangle size={14} />} size="small" label="Dato transcrito manualmente desde TrakCare" /> : text(row.source)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+    </SectionCard>
+    <LabPasteDialog open={pasteOpen} admissionId={admissionId} csrfToken={csrfToken} catalog={catalogItems} onClose={() => setPasteOpen(false)} onSaved={reloadAll} />
+  </Stack>
+}
+
+export function LabSummaryCard({ admissionId, refreshKey = 0 }: { admissionId: string; refreshKey?: number }) {
+  const trends = useClinicalData<LabTrendResponse>(`/admissions/${admissionId}/nutrition-lab-trends`, refreshKey)
+  const recent = trends.data?.series?.slice(0, 3) ?? []
+  return <SectionCard title="Tendencias de exámenes" description="Últimos exámenes numéricos disponibles en esta hospitalización.">{trends.loading ? <LoadingState label="Cargando tendencias de exámenes" rows={2} /> : trends.error ? <ErrorState message={trends.error} onRetry={() => void trends.reload()} /> : !recent.length ? <EmptyState title="Sin tendencias disponibles" description="Los resultados numéricos pegados aparecerán aquí automáticamente." /> : <Grid container spacing={2}>{recent.map((series) => { const latest = series.points[series.points.length - 1]; return <Grid key={series.key} size={{ xs: 12, md: 4 }}><Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5, height: '100%' }}><Stack direction="row" justifyContent="space-between" gap={1}><Box><Typography fontWeight={800}>{series.display_name}</Typography><Typography variant="h6">{latest.value} {latest.unit}</Typography></Box>{series.pending_classification && <Chip size="small" color="warning" label="Pendiente" />}</Stack><LabTrendChart series={series} compact /><Typography variant="caption" color="text.secondary">{formatDate(latest.sampled_at)}</Typography></Box></Grid> })}</Grid>}</SectionCard>
 }
 
 export function NutritionSummaryCard({ admissionId, refreshKey = 0 }: { admissionId: string; refreshKey?: number }) {

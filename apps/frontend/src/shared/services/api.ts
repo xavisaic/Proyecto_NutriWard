@@ -786,6 +786,43 @@ export interface TransferRequestList {
   page_size: number
 }
 
+export interface LaboratoryTestCatalogItem {
+  id: string
+  canonical_name: string
+  normalized_name: string
+  category: string | null
+  default_unit: string | null
+  aliases: string[]
+  normalized_aliases: string[]
+}
+
+export interface LabTrendPoint {
+  id: string
+  sampled_at: string
+  numeric_value: number
+  comparator: string | null
+  value: string
+  unit: string | null
+  reference_low: number | null
+  reference_high: number | null
+  reference_range: string | null
+  flag: string | null
+}
+
+export interface LabTrendSeries {
+  key: string
+  catalog_test_id: string | null
+  display_name: string
+  unit: string | null
+  pending_classification: boolean
+  points: LabTrendPoint[]
+}
+
+export interface LabTrendResponse {
+  admission_id: string
+  series: LabTrendSeries[]
+}
+
 export type MealTime = 'breakfast' | 'morning_snack' | 'lunch' | 'afternoon_snack' | 'dinner' | 'night_snack'
 
 export interface FoodCatalogItem {

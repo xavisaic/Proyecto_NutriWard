@@ -31,6 +31,8 @@ from app.models.nutritionist_service_assignment import (  # noqa: F401
     NutritionistServiceAssignment,
 )
 from app.models.nutrition import (  # noqa: F401
+    LaboratoryTestAlias,
+    LaboratoryTestCatalog,
     NutritionalAlert,
     NutritionalAnthropometricMeasurement,
     NutritionalAssessment,
@@ -39,6 +41,7 @@ from app.models.nutrition import (  # noqa: F401
     NutritionalDiagnosis,
     NutritionalIntakeRecord,
     NutritionalLabObservation,
+    NutritionalLabImportBatch,
     NutritionalMeasurementSession,
     NutritionalMeasurementValue,
     NutritionalMonitoringRecord,

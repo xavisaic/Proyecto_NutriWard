@@ -121,6 +121,88 @@ def test_clinical_permissions_authentication_openapi_and_catalogs(client, db_ses
     assert required_paths <= set(schema["paths"])
 
 
+def test_bulk_lab_import_learns_new_test_preserves_pending_and_builds_trend(client, db_session) -> None:
+    admission = active_admission(db_session)
+    auth = authenticate(client)
+    headers = {"X-CSRF-Token": auth["csrf_token"]}
+    endpoint = f"/api/v1/admissions/{admission.id}/nutrition-lab-imports"
+    first = client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "sampled_at": "2026-08-30T09:00:00Z",
+            "source": "trakcare_manual",
+            "rows": [
+                {
+                    "test_name": "Albúmina",
+                    "value": "3,2",
+                    "unit": "g/dL",
+                    "reference_range": "3,5 - 5,2",
+                    "resolution": "create",
+                },
+                {
+                    "test_name": "Examen experimental X",
+                    "value": "<5",
+                    "unit": "mg/L",
+                    "resolution": "pending",
+                },
+            ],
+        },
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["created_catalog_count"] == 1
+    assert first.json()["pending_count"] == 1
+    assert first.json()["items"][0]["numeric_value"] == "3.200000"
+    assert first.json()["items"][0]["reference_low"] == "3.500000"
+    assert first.json()["items"][1]["comparator"] == "<"
+
+    catalog = client.get("/api/v1/nutrition-lab-catalog")
+    assert catalog.status_code == 200
+    assert [item["canonical_name"] for item in catalog.json()] == ["Albúmina"]
+
+    second = client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "sampled_at": "2026-08-31T09:00:00Z",
+            "rows": [
+                {
+                    "test_name": "Albumina",
+                    "value": "3.8",
+                    "unit": "g/dL",
+                    "reference_range": "3.5-5.2",
+                    "resolution": "match",
+                }
+            ],
+        },
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["created_catalog_count"] == 0
+    assert second.json()["pending_count"] == 0
+
+    trends = client.get(f"/api/v1/admissions/{admission.id}/nutrition-lab-trends")
+    assert trends.status_code == 200, trends.text
+    series = trends.json()["series"]
+    albumin = next(item for item in series if item["display_name"] == "Albúmina")
+    assert [point["value"] for point in albumin["points"]] == ["3,2", "3.8"]
+    pending = next(item for item in series if item["display_name"] == "Examen experimental X")
+    assert pending["pending_classification"] is True
+
+    classified = client.patch(
+        f"/api/v1/nutrition-lab-observations/{pending['points'][0]['id']}/classification",
+        headers=headers,
+        json={"create_new": True},
+    )
+    assert classified.status_code == 200, classified.text
+    assert classified.json()["canonical_name"] == "Examen experimental X"
+    assert classified.json()["pending_classification"] is False
+
+    projection = client.get(f"/api/v1/admissions/{admission.id}/nutrition-labs?page_size=100")
+    assert projection.status_code == 200
+    assert projection.json()["total"] == 3
+    assert not any(item["pending_classification"] for item in projection.json()["items"])
+
+
 def test_draft_version_finalization_immutability_latest_and_correction(client, db_session) -> None:
     admission = active_admission(db_session)
     auth = authenticate(client)

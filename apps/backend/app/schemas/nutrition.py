@@ -352,6 +352,85 @@ class LabObservationInput(BaseModel):
         return self
 
 
+class LaboratoryTestCatalogRead(BaseModel):
+    id: uuid.UUID
+    canonical_name: str
+    normalized_name: str
+    category: str | None = None
+    default_unit: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    normalized_aliases: list[str] = Field(default_factory=list)
+
+
+class LabBulkImportRow(BaseModel):
+    test_name: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=200)
+    unit: str | None = Field(default=None, max_length=40)
+    reference_range: str | None = Field(default=None, max_length=200)
+    flag: str | None = Field(default=None, pattern="^(low|normal|high|critical)$")
+    local_code: str | None = Field(default=None, max_length=80)
+    catalog_test_id: uuid.UUID | None = None
+    resolution: str = Field(default="match", pattern="^(match|create|pending)$")
+
+    _normalize_name = field_validator("test_name")(normalize_required_text)
+    _normalize_optional = field_validator(
+        "unit", "reference_range", "local_code"
+    )(normalize_optional_text)
+
+
+class LabBulkImportCreate(BaseModel):
+    sampled_at: datetime
+    source: str = Field(default="trakcare_manual", min_length=1, max_length=80)
+    rows: list[LabBulkImportRow] = Field(min_length=1, max_length=300)
+
+
+class LabBulkImportRead(BaseModel):
+    batch_id: uuid.UUID
+    encounter_id: uuid.UUID
+    imported_count: int
+    created_catalog_count: int
+    pending_count: int
+    items: list[dict[str, Any]]
+
+
+class LabClassificationUpdate(BaseModel):
+    catalog_test_id: uuid.UUID | None = None
+    create_new: bool = False
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if bool(self.catalog_test_id) == self.create_new:
+            raise ValueError("Seleccione un examen existente o cree uno nuevo.")
+        return self
+
+
+class LabTrendPoint(BaseModel):
+    id: uuid.UUID
+    sampled_at: datetime
+    numeric_value: Decimal
+    comparator: str | None = None
+    value: str
+    unit: str | None = None
+    reference_low: Decimal | None = None
+    reference_high: Decimal | None = None
+    reference_range: str | None = None
+    flag: str | None = None
+
+
+class LabTrendSeries(BaseModel):
+    key: str
+    catalog_test_id: uuid.UUID | None = None
+    display_name: str
+    unit: str | None = None
+    pending_classification: bool = False
+    points: list[LabTrendPoint]
+
+
+class LabTrendResponse(BaseModel):
+    admission_id: uuid.UUID
+    series: list[LabTrendSeries]
+
+
 class AlertInput(BaseModel):
     alert_type: str = Field(min_length=1, max_length=60)
     description: str = Field(min_length=1, max_length=2000)
